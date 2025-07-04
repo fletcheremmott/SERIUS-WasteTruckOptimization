@@ -1,7 +1,7 @@
 import requests
 import json
 
-url = "https://datamall2.mytransport.sg/ltaodataservice/EstTravelTimes"
+# url = "https://datamall2.mytransport.sg/ltaodataservice/EstTravelTimes"
 
 print("Hello World Test for Land Transport Authority traffic data")
 print("URL : " + url)
