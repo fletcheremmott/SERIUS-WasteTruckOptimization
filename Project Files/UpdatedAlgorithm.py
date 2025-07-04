@@ -779,4 +779,12 @@ if plt.fignum_exists(fig_fitness.number):
 else:
     print("Fitness plot was not generated or was closed.")
 
+#minimum_theoretical_cost_benchmark
+#final_best_fitness_details
+print("Theoretical Minimum should always be lower than Final Best Fitness, accuracy will always be under 100%")
+print("Accuracy = (Minimum Theoretical Cost / Final Best Fitness) * 100 ")
+accuracy = (minimum_theoretical_cost_benchmark / final_best_fitness_details) * 100
+print("Accuracy: " + str(accuracy) + "%")
+
+
 print("\nEnd of script.")
