@@ -234,7 +234,7 @@ def calculate_fitness_vrp_simplified(chromosome, bins_data, truck_capacity, inci
     
     # Since we are strictly using 1 truck, the 'additional_truck_cost' will be 0.
     # The base cost for the first truck is assumed to be covered by other parts or is implicit.
-    additional_truck_cost = max(0, trucks_used_in_chromosome - 1) * cost_per_additional_truck
+    additional_truck_cost = max(0, trucks_used_in_chromosome) * cost_per_additional_truck
 
     # Combine all costs and penalties for fitness
     fitness = (driving_cost +
