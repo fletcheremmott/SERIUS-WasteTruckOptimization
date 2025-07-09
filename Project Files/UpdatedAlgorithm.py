@@ -116,7 +116,7 @@ def calculate_incinerator_round_trip_cost(bins_data, incinerator_loc, depot_loc,
     dist_inc_to_depot = calculate_distance(incinerator_loc, depot_loc)
     
     # Total distance for one theoretical incinerator trip
-    distance_per_trip = closest_bin_to_inc_dist + dist_inc_to_depot
+    distance_per_trip = 2*closest_bin_to_inc_dist
     
     return min_trips * distance_per_trip * cost_per_km
 
@@ -543,7 +543,7 @@ def plot_truck_routes_interactive(solution_chromosome, bins_data_dict, depot_loc
 # -- GA Parameters --
 sol_per_pop = 100
 num_parents_mating = 32
-num_generations = 100
+num_generations = 3000
 mutation_rate = 0.25
 num_elite = 5 # Number of top individuals to carry over
 
@@ -712,6 +712,16 @@ if best_route_overall:
                 current_truck_distance_temp += dist_to_final_depot_temp
 
         calculated_total_distance += current_truck_distance_temp
+    
+    print(f"\n--- Theoretical Minimum Cost (Benchmark) ---")
+    print(f"MST (Bins & Depot) Distance: {mst_bins_depot_distance:.2f} km")
+    print(f"Theoretical Incinerator Round-Trip Driving Cost: S${theoretical_incinerator_travel_cost:.2f}")
+    print(f"Minimum Driving Cost Benchmark: S${min_driving_cost_benchmark:.2f}")
+    print(f"Minimum Incinerator Trips (theoretical): {min_incinerator_trips_theoretical}")
+    print(f"Minimum Gate Fees Cost: S${min_gate_fees_cost_benchmark:.2f}")
+    print(f"Minimum Truck Operating Cost (for at least one truck): S${min_truck_cost_benchmark:.2f}")
+    print(f"Combined Theoretical Minimum Cost: S${minimum_theoretical_cost_benchmark:.2f}")
+
 
     print("\nBest solution chromosome found: ")
     for i, route_part in enumerate(best_route_overall):
