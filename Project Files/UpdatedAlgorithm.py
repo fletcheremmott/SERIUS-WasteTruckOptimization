@@ -13,7 +13,7 @@ bin_service_time = 0.1 # hours, constant for all bins for simplicity
 
 bins_data = {}
 for i in range(num_bins):
-    bin_id = f'bin{i+1}'
+    bin_id = f'{i+1}'
     loc_x = random.uniform(0, grid_range)
     loc_y = random.uniform(0, grid_range)
     volume = random.uniform(bin_volume_min, bin_volume_max)
@@ -96,6 +96,17 @@ def calculate_mst_for_bins_and_depot(bins_data, depot_loc):
 
     return min_cost
 
+def calculate_closest_bin_distace_theoretical(bins_data, incinerator_loc, depot_loc, min_trips, cost_per_km):
+
+    theoretical_closest = float('inf')
+    # Find the bin closest to the incinerator
+    for bin_id, data in bins_data.items():
+        dist = calculate_distance(data['loc'], incinerator_loc)
+        if dist < theoretical_closest:
+            theoretical_closest = dist
+        
+    return theoretical_closest
+
 def calculate_incinerator_round_trip_cost(bins_data, incinerator_loc, depot_loc, min_trips, cost_per_km):
     """
     Calculates the theoretical minimum driving cost for incinerator trips.
@@ -105,16 +116,13 @@ def calculate_incinerator_round_trip_cost(bins_data, incinerator_loc, depot_loc,
     if min_trips == 0 or not bins_data:
         return 0
 
+    closest_bin_to_inc_dist = calculate_closest_bin_distace_theoretical(bins_data, incinerator_loc, depot_loc, min_trips, cost_per_km)
     # Find the bin closest to the incinerator
-    closest_bin_to_inc_dist = float('inf')
     for bin_id, data in bins_data.items():
         dist = calculate_distance(data['loc'], incinerator_loc)
         if dist < closest_bin_to_inc_dist:
             closest_bin_to_inc_dist = dist
 
-    # Distance from incinerator back to depot
-    dist_inc_to_depot = calculate_distance(incinerator_loc, depot_loc)
-    
     # Total distance for one theoretical incinerator trip
     distance_per_trip = 2*closest_bin_to_inc_dist
     
@@ -543,7 +551,7 @@ def plot_truck_routes_interactive(solution_chromosome, bins_data_dict, depot_loc
 # -- GA Parameters --
 sol_per_pop = 100
 num_parents_mating = 32
-num_generations = 3000
+num_generations = 2000
 mutation_rate = 0.25
 num_elite = 5 # Number of top individuals to carry over
 
@@ -712,9 +720,16 @@ if best_route_overall:
                 current_truck_distance_temp += dist_to_final_depot_temp
 
         calculated_total_distance += current_truck_distance_temp
+
+    closest_bin_theoretical = calculate_closest_bin_distace_theoretical(bins_data, incinerator_location, start_depot_location, min_incinerator_trips_theoretical, COST_PER_KM)
+
+    mst_total_incinerator_trip_distance = 2 * closest_bin_theoretical * min_incinerator_trips_theoretical
+    mst_total_distance = mst_bins_depot_distance + mst_total_incinerator_trip_distance
     
     print(f"\n--- Theoretical Minimum Cost (Benchmark) ---")
     print(f"MST (Bins & Depot) Distance: {mst_bins_depot_distance:.2f} km")
+    print(f"Closest Bin Trip to Incinerator Distance: {closest_bin_theoretical:.2f} km")
+    print(f"Total distance traveled: {mst_total_distance:.2f} km")
     print(f"Theoretical Incinerator Round-Trip Driving Cost: S${theoretical_incinerator_travel_cost:.2f}")
     print(f"Minimum Driving Cost Benchmark: S${min_driving_cost_benchmark:.2f}")
     print(f"Minimum Incinerator Trips (theoretical): {min_incinerator_trips_theoretical}")
