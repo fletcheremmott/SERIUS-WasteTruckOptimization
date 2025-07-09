@@ -116,6 +116,7 @@ def calculate_incinerator_round_trip_cost(bins_data, incinerator_loc, depot_loc,
     if min_trips == 0 or not bins_data:
         return 0
 
+    inc_to_depot = calculate_distance(incinerator_loc, depot_loc)
     closest_bin_to_inc_dist = calculate_closest_bin_distace_theoretical(bins_data, incinerator_loc, depot_loc, min_trips, cost_per_km)
     # Find the bin closest to the incinerator
     for bin_id, data in bins_data.items():
@@ -125,8 +126,8 @@ def calculate_incinerator_round_trip_cost(bins_data, incinerator_loc, depot_loc,
 
     # Total distance for one theoretical incinerator trip
     distance_per_trip = 2*closest_bin_to_inc_dist
-    
-    return min_trips * distance_per_trip * cost_per_km
+    final_distance = ((min_trips-1) * distance_per_trip) + closest_bin_to_inc_dist + inc_to_depot
+    return final_distance * COST_PER_KM
 
 
 # --- Core GA Functions for VRP ---
