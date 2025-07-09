@@ -511,7 +511,6 @@ def plot_truck_routes_interactive(solution_chromosome, bins_data_dict, depot_loc
                                                incinerator_loc_coords, depot_id_str, incinerator_id_str)
                 if start_coord and end_coord:
                     space_pressed_event = False
-                    print(f"Truck {truck_idx+1}: Ready to draw segment {start_stop_id} -> {end_stop_id}. Press SPACE...")
                     while not space_pressed_event:
                         if not plt.fignum_exists(fig.number): break
                         plt.pause(0.05)
@@ -550,9 +549,9 @@ def plot_truck_routes_interactive(solution_chromosome, bins_data_dict, depot_loc
         print("Route plot was closed.")
 
 # -- GA Parameters --
-sol_per_pop = 100
-num_parents_mating = 32
-num_generations = 2000
+sol_per_pop = 500
+num_parents_mating = 128
+num_generations = 1500
 mutation_rate = 0.25
 num_elite = 5 # Number of top individuals to carry over
 
