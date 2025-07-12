@@ -72,7 +72,7 @@
 
         const generateBinsBtn = document.getElementById('generateBinsBtn');
         const runGaBtn = document.getElementById('runGaBtn');
-        const prevGenBtn = document = document.getElementById('prevGenBtn');
+        const prevGenBtn = document.getElementById('prevGenBtn');
         const nextGenBtn = document.getElementById('nextGenBtn');
         const displayRouteBtn = document.getElementById('displayRouteBtn'); // New button
         const animateRouteBtn = document.getElementById('animateRouteBtn');
@@ -192,8 +192,8 @@
                     mode: 'lines+markers',
                     type: 'scatter',
                     name: `Truck ${truckIndex + 1}`,
-                    line: { color: routeColors[truckIndex % routeColors.length], width: 2 },
-                    marker: { symbol: 'circle', size: 6, color: routeColors[truckIndex % routeColors.length] },
+                    line: { color: routeColors[truckIndex % routeColors.length], width: 2 }, // Apply color here
+                    marker: { symbol: 'circle', size: 6, color: routeColors[truckIndex % routeColors.length] }, // Apply color here
                     hoverinfo: 'text',
                     text: route_text
                 });
@@ -273,7 +273,7 @@
                         mode: 'lines',
                         type: 'scatter',
                         name: `Truck ${currentTruckIndex + 1} Segment ${currentRouteAnimationStep + 1}`,
-                        line: { color: routeColors[currentTruckIndex % routeColors.length], width: 2 },
+                        line: { color: routeColors[currentTruckIndex % routeColors.length], width: 2 }, // Apply color here
                         showlegend: false, // Hide legend for individual segments
                         hoverinfo: 'skip'
                     });
@@ -287,7 +287,7 @@
                         marker: {
                             symbol: 'triangle-right', // Simple right triangle, won't rotate with line direction
                             size: 8,
-                            color: routeColors[currentTruckIndex % routeColors.length],
+                            color: routeColors[currentTruckIndex % routeColors.length], // Apply color here
                         },
                         showlegend: false,
                         hoverinfo: 'skip'
