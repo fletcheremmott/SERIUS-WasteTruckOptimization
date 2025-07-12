@@ -170,7 +170,7 @@ def calculate_fitness_vrp_simplified(chromosome, bins_data, truck_capacity, inci
 
         has_any_bins_in_route = any(stop_id in bins_data for stop_id in truck_route)
         if has_any_bins_in_route:
-            trucks_used_in_chromosome += 1
+            trucks_used_in_chromosome = 1 # Fixed to 1 for this context as num_trucks_for_ga_start is 1
 
         if not truck_route or (len(truck_route) == 2 and truck_route[0] == depot_id and truck_route[1] == depot_id):
             continue
@@ -354,6 +354,7 @@ def crossover_vrp(parents, offspring_size_tuple, bins_data_keys, depot_id, incin
         offspring.append(child)
     return offspring
 
+
 def mutation_vrp(offspring_crossover, mutation_rate, bins_data_keys, depot_id, incinerator_id):
     mutated_offspring = []
     all_bins_set = set(bins_data_keys)
@@ -459,7 +460,7 @@ def run_ga():
     if not bins_data_global:
         return jsonify({"error": "Bins data not generated. Please call /generate_bins first."}), 400
 
-    generation_results = {}
+    generation_results = {} # Reset results for a new GA run
     all_bins_in_problem = set(bins_data_global.keys())
     bin_ids_list = list(bins_data_global.keys())
 
@@ -492,47 +493,42 @@ def run_ga():
 
         current_best_fitness_in_gen = numpy.min(fitness_scores)
 
+        # Update overall best if current generation has a better fitness
         if current_best_fitness_in_gen < overall_best_fitness:
             overall_best_fitness = current_best_fitness_in_gen
             best_idx_in_pop = numpy.argmin(fitness_scores)
             best_route_overall = new_population[best_idx_in_pop]
 
         # Save data for specific generations
-        if generation + 1 in generations_to_save:
-            # Recalculate metrics for the current best route (not necessarily the *global* best)
-            # to reflect the state at this specific generation.
-            # To get the exact metrics for the 'overall_best_fitness' at this gen,
-            # we need to get the corresponding best route for that specific 'overall_best_fitness'
-            # if it was updated in this generation. For simplicity, we save the current
-            # 'best_route_overall' which is the best seen SO FAR up to this generation.
-            
+        if (generation + 1) in generations_to_save:
+            print(f"\n--- Attempting to save generation: {generation + 1} ---")
+            print(f"Overall best fitness at generation {generation + 1}: {overall_best_fitness:.2f}")
+            print(f"Best route overall at this point (before conversion): {best_route_overall}")
+            print(f"Type of best_route_overall: {type(best_route_overall)}")
+            if best_route_overall:
+                print(f"Length of best_route_overall: {len(best_route_overall)}")
+                if len(best_route_overall) > 0:
+                    print(f"First truck route in best_route_overall: {best_route_overall[0]}")
+            else:
+                print("best_route_overall is empty or None.")
+
+
             # Recalculate the detailed metrics for the 'overall_best_fitness' route
+            # This ensures the metrics align with the best route saved.
             calculated_total_distance = 0
             calculated_incinerator_trips = 0
             calculated_trucks_used = 0
 
-            # It's crucial to use the 'best_route_overall' (the global best) for these calculations
-            # and not the 'current_best_fitness_in_gen' route if it's not the same.
-            # This ensures consistency with the 'overall_best_fitness' value.
-            
-            # To get accurate data for this specific 'best_route_overall' at this generation,
-            # we need to re-run the detailed calculations.
-            
-            temp_dist = 0
-            temp_inc_trips = 0
-            temp_trucks_used = 0
-
             if best_route_overall:
-                # This logic is mostly duplicated from the end of the script to get the metrics
                 for truck_route in best_route_overall:
                     current_truck_distance_temp = 0
                     current_load_temp = 0
                     last_location_temp = start_depot_location
                     has_collected_any_bins_this_truck_temp = False
 
-                    has_any_bins_in_route_temp = any(stop_id in bins_data_global for stop_id in truck_route)
-                    if has_any_bins_in_route_temp:
-                        temp_trucks_used = 1 # Fixed to 1 for this context
+                    # Check if the truck route contains any bins to count it as "used"
+                    if any(stop_id in bins_data_global for stop_id in truck_route):
+                        calculated_trucks_used = 1 # Fixed to 1 truck for this problem
 
                     processed_route_temp = list(truck_route)
                     if not processed_route_temp or processed_route_temp[0] != depot_id:
@@ -546,41 +542,40 @@ def run_ga():
                             last_location_temp = current_location_temp
 
                         if stop_id == incinerator_id:
-                            temp_inc_trips += 1
+                            calculated_incinerator_trips += 1
                             current_load_temp = 0
                         elif stop_id in bins_data_global:
                             current_load_temp += bins_data_global[stop_id]['volume']
                             has_collected_any_bins_this_truck_temp = True
 
+                    # Add mandatory final trip to incinerator if needed
                     if has_collected_any_bins_this_truck_temp and current_load_temp > 0:
                         dist_to_inc_temp = calculate_distance(last_location_temp, incinerator_location)
                         current_truck_distance_temp += dist_to_inc_temp
-                        temp_inc_trips += 1
+                        calculated_incinerator_trips += 1 # Count this final trip
                         dist_inc_to_depot_temp = calculate_distance(incinerator_location, end_depot_location)
                         current_truck_distance_temp += dist_inc_to_depot_temp
-                    else:
+                    else: # Ensure truck returns to depot if it didn't go to incinerator
                         if last_location_temp != end_depot_location:
                             dist_to_final_depot_temp = calculate_distance(last_location_temp, end_depot_location)
                             current_truck_distance_temp += dist_to_final_depot_temp
-                    temp_dist += current_truck_distance_temp
-            
-            calculated_total_distance = temp_dist
-            calculated_incinerator_trips = temp_inc_trips
-            calculated_trucks_used = temp_trucks_used
+
+                    calculated_total_distance += current_truck_distance_temp
 
             accuracy = (theoretical_min_cost_benchmark / overall_best_fitness) * 100 if overall_best_fitness > 0 else 0
 
             # Convert tuple locations to lists for JSON serialization
             route_for_json = []
-            for truck_route in best_route_overall:
-                single_truck_route_json = []
-                for stop_id in truck_route:
-                    coords = get_location_coords(stop_id, bins_data_global, start_depot_location, incinerator_location, depot_id, incinerator_id)
-                    single_truck_route_json.append({'id': stop_id, 'coords': list(coords) if coords else None})
-                route_for_json.append(single_truck_route_json)
+            if best_route_overall:
+                for truck_route in best_route_overall:
+                    single_truck_route_json = []
+                    for stop_id in truck_route:
+                        coords = get_location_coords(stop_id, bins_data_global, start_depot_location, incinerator_location, depot_id, incinerator_id)
+                        single_truck_route_json.append({'id': stop_id, 'coords': list(coords) if coords else None})
+                    route_for_json.append(single_truck_route_json)
 
 
-            generation_results[generation + 1] = {
+            generation_results[str(generation + 1)] = { # Store as string key to match request
                 'best_route': route_for_json,
                 'fitness': float(overall_best_fitness),
                 'total_distance': float(calculated_total_distance),
@@ -588,6 +583,10 @@ def run_ga():
                 'trucks_used': calculated_trucks_used,
                 'accuracy': float(accuracy)
             }
+            print(f"Successfully saved data for generation {generation + 1}.")
+            print(f"Saved best_route for gen {generation + 1}: {generation_results[str(generation + 1)]['best_route']}")
+            print(f"Saved fitness for gen {generation + 1}: {generation_results[str(generation + 1)]['fitness']}")
+
 
         parents = select_mating_pool_vrp(new_population, fitness_scores, num_parents_mating)
         elite_individuals = []
@@ -607,6 +606,7 @@ def run_ga():
                 else:
                      offspring_crossover.append(create_initial_vrp_population(1,bin_ids_list,current_num_trucks,depot_id,incinerator_id, truck_capacity, bins_data_global)[0])
 
+
         offspring_mutation = mutation_vrp(offspring_crossover, mutation_rate, bin_ids_list, depot_id, incinerator_id)
 
         new_population = []
@@ -620,23 +620,33 @@ def run_ga():
             new_individuals = create_initial_vrp_population(needed_to_fill, bin_ids_list, current_num_trucks, depot_id, incinerator_id, truck_capacity, bins_data_global)
             new_population.extend(new_individuals)
 
+    print("\n--- Final generation_results after GA run ---")
+    if generation_results:
+        for gen_key, data in generation_results.items():
+            print(f"Generation {gen_key}: Fitness={data['fitness']:.2f}, Trucks={data['trucks_used']}, Route segments={len(data['best_route'][0]) if data['best_route'] else 'N/A'}")
+    else:
+        print("No generation results were stored.")
+    print("---------------------------------------------")
+
     return jsonify({
         'message': 'GA simulation completed.',
         'theoretical_minimum_cost_benchmark': float(theoretical_min_cost_benchmark),
-        'results_by_generation': generation_results
+        'results_by_generation': generation_results # Sending the actual stored results back as well for inspection
     })
 
 @app.route('/get_generations', methods=['GET'])
 def get_generations():
     if not generation_results:
         return jsonify({"error": "GA has not been run yet. No generation data available."}), 400
+    # Ensure keys are returned as strings if they were stored as strings
     return jsonify({"generations": sorted([int(gen) for gen in generation_results.keys()])})
 
 @app.route('/get_route_data/<int:generation>', methods=['GET'])
 def get_route_data(generation):
+    # Retrieve using string key if stored as string
     if str(generation) not in generation_results:
         return jsonify({"error": f"Data for generation {generation} not found."}), 404
     return jsonify(generation_results[str(generation)])
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000) # Run on port 5000
+    app.run(debug=True, port=5000)
