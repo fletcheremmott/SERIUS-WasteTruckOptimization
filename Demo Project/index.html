@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VRP Optimization Frontend</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter (for a modern look) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Ensure canvas is responsive */
+        canvas {
+            max-width: 100%;
+            height: auto;
+            display: block; /* Remove extra space below canvas */
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- React and ReactDOM CDNs -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX transformation in the browser (for development only) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        // Your React App component goes here
+        // This content is directly from the 'vrp_frontend_react' immersive
+        // It's placed inside the <script type="text/babel"> tag
+        // to allow the browser to transform JSX.
+
+        import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+        // Tailwind CSS is assumed to be available in the environment.
+        // For local testing, you can include this in your HTML <head>:
+        // <script src="https://cdn.tailwindcss.com"></script>
+
+        // --- VRP Instance Data (Parameters - mirroring Python defaults) ---
+        const DEFAULT_NUM_BINS = 48;
+        const DEFAULT_GRID_RANGE = 15; // 15x15 km grid
+        const DEFAULT_BIN_VOLUME_MIN = 360; // kg
+        const DEFAULT_BIN_VOLUME_MAX = 660; // kg
+        const DEFAULT_BIN_SERVICE_TIME = 0.1; // hours
+
+        const DEFAULT_TRUCK_CAPACITY = 10000; // kg
+        const DEFAULT_TRUCK_SPEED = 40; // units/hour (not used in frontend logic, but kept for context)
+
+        const DEFAULT_START_DEPOT_LOCATION = { x: 0, y: 0 };
+        const DEFAULT_END_DEPOT_LOCATION = { x: 0, y: 0 }; // Not directly used in frontend logic
+
+        const DEFAULT_INCINERATOR_LOCATION = { x: 30, y: 30 };
+        const DEFAULT_INCINERATOR_UNLOAD_TIME = 0.5; // hours (not used in frontend logic)
+        const DEFAULT_INCINERATOR_ID = 'INC';
+        const DEFAULT_DEPOT_ID = 'DEPOT';
+
+        // --- Cost Parameters (prices in SGD - for display) ---
+        const COST_PER_KM = 3.2382;
+        const GATE_FEE = 80;
+        const COST_PER_ADDITIONAL_TRUCK = 200;
+
+        // --- GA Parameters for Backend (Frontend sends these) ---
+        const GA_NUM_GENERATIONS = 500; // Increased for better convergence
+        const GA_SOL_PER_POP = 100;
+        const GA_MUTATION_RATE = 0.25;
+        const GA_NUM_ELITE = 5;
+
+        // --- Backend API URL ---
+        const BACKEND_URL = 'http://127.0.0.1:5000/run_vrp_ga'; // Flask default port
+
+        // --- Utility Functions (JavaScript equivalents) ---
+        const calculateDistance = (loc1, loc2) => {
+            return Math.sqrt(Math.pow(loc1.x - loc2.x, 2) + Math.pow(loc1.y - loc2.y, 2));
+        };
+
+        const getCanvasCoordinates = (loc, canvasWidth, canvasHeight, gridRange, incineratorLoc) => {
+            // Determine the max X and Y extent to scale correctly
+            const maxX = Math.max(gridRange, incineratorLoc.x);
+            const maxY = Math.max(gridRange, incineratorLoc.y);
+            const effectiveGridRangeX = maxX + 5; // Add some padding
+            const effectiveGridRangeY = maxY + 5; // Add some padding
+
+            // Scale factor to map grid coordinates to canvas pixels
+            const scaleX = canvasWidth / effectiveGridRangeX;
+            const scaleY = canvasHeight / effectiveGridRangeY;
+
+            // Adjust Y coordinate for canvas (0,0 is top-left)
+            return {
+                x: loc.x * scaleX,
+                y: canvasHeight - (loc.y * scaleY) // Invert Y-axis for typical Cartesian coordinates
+            };
+        };
+
+        const App = () => {
+            const canvasRef = useRef(null);
+            const [binsData, setBinsData] = useState({});
+            const [depotLocation, setDepotLocation] = useState(DEFAULT_START_DEPOT_LOCATION);
+            const [incineratorLocation, setIncineratorLocation] = useState(DEFAULT_INCINERATOR_LOCATION);
+            const [routeResult, setRouteResult] = useState(null); // Stores { route, totalDistance, totalIncineratorTrips, totalCost }
+            const [totalTrash, setTotalTrash] = useState(0);
+            const [isLoading, setIsLoading] = useState(false); // New loading state
+            const [error, setError] = useState(null); // New error state
+
+            const generatePoints = useCallback(() => {
+                const newBinsData = {};
+                let currentTotalTrash = 0;
+                for (let i = 0; i < DEFAULT_NUM_BINS; i++) {
+                    const binId = `bin${i + 1}`;
+                    const locX = Math.random() * DEFAULT_GRID_RANGE;
+                    const locY = Math.random() * DEFAULT_GRID_RANGE;
+                    const volume = Math.random() * (DEFAULT_BIN_VOLUME_MAX - DEFAULT_BIN_VOLUME_MIN) + DEFAULT_BIN_VOLUME_MIN;
+                    newBinsData[binId] = { loc: { x: locX, y: locY }, volume: volume, service_time: DEFAULT_BIN_SERVICE_TIME };
+                    currentTotalTrash += volume;
+                }
+                setBinsData(newBinsData);
+                setDepotLocation(DEFAULT_START_DEPOT_LOCATION);
+                setIncineratorLocation(DEFAULT_INCINERATOR_LOCATION);
+                setTotalTrash(currentTotalTrash);
+                setRouteResult(null); // Clear previous route when new points are generated
+                setError(null); // Clear any previous errors
+            }, []);
+
+            const drawCanvas = useCallback(() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                const canvasWidth = canvas.width;
+                const canvasHeight = canvas.height;
+
+                ctx.clearRect(0, 0, canvasWidth, canvasHeight); // Clear canvas
+
+                // Draw grid lines
+                ctx.strokeStyle = '#e0e0e0';
+                ctx.lineWidth = 0.5;
+                const maxX = Math.max(DEFAULT_GRID_RANGE, DEFAULT_INCINERATOR_LOCATION.x);
+                const maxY = Math.max(DEFAULT_GRID_RANGE, DEFAULT_INCINERATOR_LOCATION.y);
+                const effectiveGridRangeX = maxX + 5;
+                const effectiveGridRangeY = maxY + 5;
+                const scaleX = canvasWidth / effectiveGridRangeX;
+                const scaleY = canvasHeight / effectiveGridRangeY;
+
+                for (let i = 0; i <= effectiveGridRangeX; i += 5) { // Every 5km
+                    ctx.beginPath();
+                    ctx.moveTo(getCanvasCoordinates({ x: i, y: 0 }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).x, 0);
+                    ctx.lineTo(getCanvasCoordinates({ x: i, y: 0 }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).x, canvasHeight);
+                    ctx.stroke();
+                }
+                for (let i = 0; i <= effectiveGridRangeY; i += 5) { // Every 5km
+                    ctx.beginPath();
+                    ctx.moveTo(0, getCanvasCoordinates({ x: 0, y: i }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).y);
+                    ctx.lineTo(canvasWidth, getCanvasCoordinates({ x: 0, y: i }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).y);
+                    ctx.stroke();
+                }
+
+                // Draw Depot
+                ctx.fillStyle = 'black';
+                const depotCanvasLoc = getCanvasCoordinates(depotLocation, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
+                ctx.beginPath();
+                ctx.arc(depotCanvasLoc.x, depotCanvasLoc.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillText("Depot", depotCanvasLoc.x + 10, depotCanvasLoc.y + 5);
+
+                // Draw Incinerator
+                ctx.fillStyle = 'purple';
+                const incCanvasLoc = getCanvasCoordinates(incineratorLocation, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
+                ctx.beginPath();
+                ctx.moveTo(incCanvasLoc.x, incCanvasLoc.y - 8);
+                ctx.lineTo(incCanvasLoc.x - 8, incCanvasLoc.y + 8);
+                ctx.lineTo(incCanvasLoc.x + 8, incCanvasLoc.y + 8);
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillText("INC", incCanvasLoc.x + 10, incCanvasLoc.y + 5);
+
+                // Draw Bins
+                ctx.fillStyle = 'blue';
+                for (const binId in binsData) {
+                    const binLoc = binsData[binId].loc;
+                    const canvasLoc = getCanvasCoordinates(binLoc, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
+                    ctx.beginPath();
+                    ctx.arc(canvasLoc.x, canvasLoc.y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillText(binId, canvasLoc.x + 8, canvasLoc.y + 3);
+                }
+
+                // Draw Route if available
+                if (routeResult && routeResult.route && routeResult.route.length > 1) {
+                    ctx.strokeStyle = 'red';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+
+                    let prevCanvasLoc = null;
+
+                    for (let i = 0; i < routeResult.route.length; i++) {
+                        const stopId = routeResult.route[i];
+                        let stopLoc;
+
+                        if (stopId === DEFAULT_DEPOT_ID) {
+                            stopLoc = depotLocation;
+                        } else if (stopId === DEFAULT_INCINERATOR_ID) {
+                            stopLoc = incineratorLocation;
+                        } else {
+                            stopLoc = binsData[stopId]?.loc;
+                        }
+
+                        if (stopLoc) {
+                            const currentCanvasLoc = getCanvasCoordinates(stopLoc, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
+                            if (i === 0) {
+                                ctx.moveTo(currentCanvasLoc.x, currentCanvasLoc.y);
+                            } else {
+                                ctx.lineTo(currentCanvasLoc.x, currentCanvasLoc.y);
+                                // Draw arrow
+                                const headlen = 10; // length of head in pixels
+                                const dx = currentCanvasLoc.x - prevCanvasLoc.x;
+                                const dy = currentCanvasLoc.y - prevCanvasLoc.y;
+                                const angle = Math.atan2(dy, dx);
+                                ctx.lineTo(currentCanvasLoc.x - headlen * Math.cos(angle - Math.PI / 6), currentCanvasLoc.y - headlen * Math.sin(angle - Math.PI / 6));
+                                ctx.moveTo(currentCanvasLoc.x, currentCanvasLoc.y);
+                                ctx.lineTo(currentCanvasLoc.x - headlen * Math.cos(angle + Math.PI / 6), currentCanvasLoc.y - headlen * Math.sin(angle + Math.PI / 6));
+                                ctx.moveTo(currentCanvasLoc.x, currentCanvasLoc.y); // Move back to end point for next line segment
+                            }
+                            prevCanvasLoc = currentCanvasLoc;
+                        }
+                    }
+                    ctx.stroke();
+                }
+            }, [binsData, depotLocation, incineratorLocation, routeResult]);
+
+            // Initial point generation on component mount
+            useEffect(() => {
+                generatePoints();
+            }, [generatePoints]);
+
+            // Redraw canvas whenever relevant data changes
+            useEffect(() => {
+                drawCanvas();
+            }, [drawCanvas, binsData, depotLocation, incineratorLocation, routeResult]);
+
+            const handleRunGA = async () => {
+                setIsLoading(true);
+                setError(null);
+                setRouteResult(null); // Clear previous route
+
+                try {
+                    const response = await fetch(BACKEND_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            num_bins: DEFAULT_NUM_BINS,
+                            grid_range: DEFAULT_GRID_RANGE,
+                            bin_volume_min: DEFAULT_BIN_VOLUME_MIN,
+                            bin_volume_max: DEFAULT_BIN_VOLUME_MAX,
+                            truck_capacity: DEFAULT_TRUCK_CAPACITY,
+                            num_generations: GA_NUM_GENERATIONS,
+                            sol_per_pop: GA_SOL_PER_POP,
+                            mutation_rate: GA_MUTATION_RATE,
+                            num_elite: GA_NUM_ELITE,
+                            // Pass current binsData if you want to use the *exact* same points for GA
+                            // Otherwise, backend will generate new random points based on params
+                            // bins_data: binsData // Uncomment this if you want to send existing bins
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    
+                    // Update binsData with the exact bins generated/used by the backend GA
+                    // This ensures the frontend plot matches the backend's solution
+                    setBinsData(data.binsData);
+                    setDepotLocation(data.depotLocation);
+                    setIncineratorLocation(data.incineratorLocation);
+                    setTotalTrash(data.totalTrash);
+
+                    setRouteResult(data.routeResult);
+
+                } catch (err) {
+                    console.error("Failed to fetch GA results:", err);
+                    setError(`Failed to get GA results: ${err.message}. Make sure the Python backend is running.`);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4 font-inter">
+                    <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-4xl">
+                        <h1 className="text-3xl font-bold text-center text-gray-800 mb-6">VRP Optimization Frontend</h1>
+
+                        <div className="flex justify-center space-x-4 mb-6">
+                            <button
+                                onClick={generatePoints}
+                                className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition duration-200 ease-in-out"
+                                disabled={isLoading}
+                            >
+                                Generate New Points
+                            </button>
+                            <button
+                                onClick={handleRunGA}
+                                className="px-6 py-3 bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition duration-200 ease-in-out"
+                                disabled={isLoading}
+                            >
+                                {isLoading ? 'Running GA...' : 'Run GA Optimization'}
+                            </button>
+                        </div>
+
+                        {isLoading && (
+                            <div className="text-center text-blue-500 mb-4">
+                                <p>Running Genetic Algorithm... This might take a moment.</p>
+                                <p>Generations: {GA_NUM_GENERATIONS}, Population: {GA_SOL_PER_POP}</p>
+                            </div>
+                        )}
+
+                        {error && (
+                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                                <strong className="font-bold">Error:</strong>
+                                <span className="block sm:inline"> {error}</span>
+                            </div>
+                        )}
+
+                        <div className="border border-gray-300 rounded-lg overflow-hidden mb-6">
+                            <canvas ref={canvasRef} width="800" height="600" className="bg-white"></canvas>
+                        </div>
+
+                        {routeResult && (
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                <h2 className="text-xl font-semibold text-gray-700 mb-3">GA Optimized Route Details:</h2>
+                                <p className="text-gray-600 mb-1">
+                                    <strong>Total Distance:</strong> {routeResult.totalDistance.toFixed(2)} km
+                                </p>
+                                <p className="text-gray-600 mb-1">
+                                    <strong>Total Incinerator Trips:</strong> {routeResult.totalIncineratorTrips}
+                                </p>
+                                <p className="text-gray-600 mb-1">
+                                    <strong>Number of Trucks Used:</strong> {routeResult.trucksUsed}
+                                </p>
+                                <p className="text-gray-600 mb-1">
+                                    <strong>Final Total Cost:</strong> S${routeResult.totalCost.toFixed(2)}
+                                </p>
+                                <div className="mt-2 text-sm text-gray-500">
+                                    <strong>Penalties (should be 0 for valid solution):</strong>
+                                    <ul className="list-disc list-inside ml-4">
+                                        <li>Capacity Violation: S${routeResult.capacityPenalty.toFixed(2)}</li>
+                                        <li>Unvisited Bin: S${routeResult.unvisitedPenalty.toFixed(2)}</li>
+                                        <li>Invalid Bin: S${routeResult.invalidBinPenalty.toFixed(2)}</li>
+                                    </ul>
+                                </div>
+                                <div className="mt-4 text-sm text-gray-500">
+                                    <strong>Route Sequence (Truck 1):</strong> {routeResult.route.join(' -> ')}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="mt-6 text-center text-gray-500 text-sm">
+                            <p>Depot: ({depotLocation.x}, {depotLocation.y})</p>
+                            <p>Incinerator: ({incineratorLocation.x}, {incineratorLocation.y})</p>
+                            <p>Total Trash Volume: {totalTrash.toFixed(2)} kg</p>
+                            <p>Truck Capacity: {DEFAULT_TRUCK_CAPACITY} kg</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the App component
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
