@@ -38,7 +38,7 @@
             <button id="runGaBtn" disabled>Run Genetic Algorithm</button>
             <button id="prevGenBtn" disabled>Previous Generation</button>
             <button id="nextGenBtn" disabled>Next Generation</button>
-            <button id="animateRouteBtn" disabled>Animate Current Route</button>
+            <button id="displayRouteBtn" disabled>Display Route</button> <button id="animateRouteBtn" disabled>Animate Route</button>
             <button id="stopAnimationBtn" disabled>Stop Animation</button>
         </div>
 
@@ -72,10 +72,11 @@
 
         const generateBinsBtn = document.getElementById('generateBinsBtn');
         const runGaBtn = document.getElementById('runGaBtn');
-        const prevGenBtn = document.getElementById('prevGenBtn');
+        const prevGenBtn = document = document.getElementById('prevGenBtn');
         const nextGenBtn = document.getElementById('nextGenBtn');
-        const animateRouteBtn = document.getElementById('animateRouteBtn'); // New button
-        const stopAnimationBtn = document.getElementById('stopAnimationBtn'); // New button
+        const displayRouteBtn = document.getElementById('displayRouteBtn'); // New button
+        const animateRouteBtn = document.getElementById('animateRouteBtn');
+        const stopAnimationBtn = document.getElementById('stopAnimationBtn');
 
         const statusSpan = document.getElementById('status');
         const currentGenSpan = document.getElementById('currentGen');
@@ -160,33 +161,31 @@
             }
 
             const updateData = [];
-            // Plotly.d3.select('#graph').data()[0].length is not reliable after newPlot.
-            // When plotInitialStaticPoints calls Plotly.newPlot, it resets the graph's data.
-            // So we just add new traces.
-
+            
             routeData.forEach((truckRoute, truckIndex) => {
                 if (!Array.isArray(truckRoute)) {
                     console.warn(`plotCompleteRoute: Truck route at index ${truckIndex} is not an array:`, truckRoute);
                     return;
                 }
 
-                // If a route is just [depot, depot] or empty, don't plot lines for it, but include for animation to skip
+                // If a route is just [depot, depot] or effectively empty, don't plot lines for it
                 if (truckRoute.length < 2 || (truckRoute.length === 2 && truckRoute[0].id === 'depot' && truckRoute[1].id === 'depot')) {
                     console.log(`plotCompleteRoute: Skipping empty or depot-only route for Truck ${truckIndex + 1}`);
-                    return;
+                    return; // Skip plotting lines for this "empty" route
                 }
 
                 const route_x = [];
                 const route_y = [];
                 const route_text = [];
                 
-                // Add truck route as a single line+markers trace
+                // Collect all points for this truck's route
                 truckRoute.forEach(stop => {
                     route_x.push(stop.coords[0]);
                     route_y.push(stop.coords[1]);
                     route_text.push(stop.id);
                 });
 
+                // Add truck route as a single line+markers trace
                 updateData.push({
                     x: route_x,
                     y: route_y,
@@ -203,21 +202,20 @@
                 for (let i = 0; i < truckRoute.length - 1; i++) {
                     const start_coords = truckRoute[i].coords;
                     const end_coords = truckRoute[i+1].coords;
-                    if (start_coords && end_coords) { // Added null/undefined check
+                    if (start_coords && end_coords) {
                         updateData.push({
                             x: [start_coords[0], end_coords[0]],
                             y: [start_coords[1], end_coords[1]],
                             mode: 'lines',
                             type: 'scatter',
                             line: { color: routeColors[truckIndex % routeColors.length], width: 2 },
-                            showlegend: false,
+                            showlegend: false, // Don't show legend for individual segments
                             hoverinfo: 'skip'
                         });
                     }
                 }
             });
             
-            // Add all route traces in one go
             Plotly.addTraces(graphDiv, updateData);
             Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Complete)` });
         }
@@ -230,6 +228,7 @@
             
             currentRouteAnimationStep = 0;
             currentTruckIndex = 0;
+            displayRouteBtn.disabled = true; // Disable static display during animation
             animateRouteBtn.disabled = true;
             stopAnimationBtn.disabled = false;
 
@@ -261,7 +260,7 @@
                     const startStop = truckRoute[currentRouteAnimationStep];
                     const endStop = truckRoute[currentRouteAnimationStep + 1];
 
-                    if (!startStop || !startStop.coords || !endStop || !endStop.coords) { // Added check for coords
+                    if (!startStop || !startStop.coords || !endStop || !endStop.coords) {
                         console.warn(`animateRoute: Invalid stop data at truck ${currentTruckIndex}, step ${currentRouteAnimationStep}`);
                         currentRouteAnimationStep++; // Try next segment
                         return;
@@ -270,8 +269,6 @@
                     // Add trace for this segment
                     Plotly.addTraces(graphDiv, {
                         x: [startStop.coords[0], endStop.coords[0]],
-                        y: [endStop.coords[1], endStop.coords[1]], // Fix: endStop.coords[1] was used twice. Should be startStop.coords[1]
-                        // Corrected:
                         y: [startStop.coords[1], endStop.coords[1]],
                         mode: 'lines',
                         type: 'scatter',
@@ -281,16 +278,14 @@
                         hoverinfo: 'skip'
                     });
 
-                    // Add an arrowhead marker (optional, can be refined)
-                    // For proper rotation, you'd need Plotly's annotation arrows or manual trace manipulation
-                    // This is a simple marker at the end point.
+                    // Add a marker at the end of the current segment to indicate direction
                     Plotly.addTraces(graphDiv, {
                         x: [endStop.coords[0]],
                         y: [endStop.coords[1]],
                         mode: 'markers',
                         type: 'scatter',
                         marker: {
-                            symbol: 'triangle-right',
+                            symbol: 'triangle-right', // Simple right triangle, won't rotate with line direction
                             size: 8,
                             color: routeColors[currentTruckIndex % routeColors.length],
                         },
@@ -304,6 +299,7 @@
                     currentTruckIndex++;
                     currentRouteAnimationStep = 0;
                 }
+                // Update title during animation to show current truck
                 Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Animating Truck ${currentTruckIndex + 1})` });
             }, 100); // 100 ms = 0.1 seconds
         }
@@ -313,6 +309,8 @@
                 clearInterval(animationInterval);
                 animationInterval = null;
             }
+            // Re-enable buttons after stopping animation
+            displayRouteBtn.disabled = false;
             animateRouteBtn.disabled = false;
             stopAnimationBtn.disabled = true;
         }
@@ -324,6 +322,7 @@
             runGaBtn.disabled = true;
             prevGenBtn.disabled = true;
             nextGenBtn.disabled = true;
+            displayRouteBtn.disabled = true; // Initially disable
             animateRouteBtn.disabled = true;
             stopAnimationBtn.disabled = true;
             stopAnimation(); // Ensure no animation is running
@@ -335,6 +334,7 @@
                 const depotLoc = result.depot_location;
                 const incineratorLoc = result.incinerator_location;
                 theoreticalMinCost = null; // Reset theoretical min cost
+                availableGenerations = []; // Clear available generations
                 currentGenerationIndex = -1; // Reset generation viewer
 
                 // Clear previous plot and info
@@ -361,6 +361,7 @@
             generateBinsBtn.disabled = true;
             prevGenBtn.disabled = true;
             nextGenBtn.disabled = true;
+            displayRouteBtn.disabled = true; // Disable during GA run
             animateRouteBtn.disabled = true;
             stopAnimationBtn.disabled = true;
             stopAnimation(); // Ensure no animation is running
@@ -373,7 +374,6 @@
                 theoreticalMinCost = result.theoretical_minimum_cost_benchmark;
                 theoreticalMinCostSpan.textContent = theoreticalMinCost.toFixed(2);
 
-                // Use result.results_by_generation directly
                 availableGenerations = Object.keys(result.results_by_generation).map(Number).sort((a, b) => a - b);
                 currentGenerationIndex = -1; // Reset to -1 so 'next' button can show first result
 
@@ -382,7 +382,7 @@
                 nextGenBtn.disabled = availableGenerations.length === 0;
                 prevGenBtn.disabled = true; // Initially disabled
                 
-                // Automatically display the first generation if available
+                // Automatically display the first generation (static points only) if available
                 if (availableGenerations.length > 0) {
                     currentGenerationIndex = 0;
                     displayGeneration(availableGenerations[currentGenerationIndex]);
@@ -410,12 +410,30 @@
             }
         });
 
+        displayRouteBtn.addEventListener('click', () => {
+            if (currentRouteData && Array.isArray(currentRouteData.best_route) && currentRouteData.best_route.length > 0) {
+                plotCompleteRoute(
+                    currentBinsData,
+                    [0, 0], // Depot location
+                    [30, 30], // Incinerator location
+                    currentRouteData.best_route
+                );
+                // After displaying complete route, animate button should be active
+                animateRouteBtn.disabled = false;
+            } else {
+                alert('No valid route data available to display for the current generation. Try a different generation or run GA again.');
+                displayRouteBtn.disabled = true;
+                animateRouteBtn.disabled = true;
+                stopAnimation();
+            }
+        });
+
         animateRouteBtn.addEventListener('click', () => {
             if (currentRouteData && Array.isArray(currentRouteData.best_route) && currentRouteData.best_route.length > 0) {
                 animateRoute();
             } else {
                 alert('No valid route data available to animate for the current generation. Try a different generation or run GA again.');
-                stopAnimation(); // Ensure animation buttons are reset
+                stopAnimation();
             }
         });
 
@@ -424,7 +442,8 @@
 
         async function displayGeneration(gen) {
             statusSpan.textContent = `Fetching data for generation ${gen}...`;
-            animateRouteBtn.disabled = true; // Disable animate button while fetching/plotting
+            displayRouteBtn.disabled = true; // Disable display/animate while fetching
+            animateRouteBtn.disabled = true;
             stopAnimationBtn.disabled = true;
             stopAnimation(); // Stop any ongoing animation
 
@@ -432,36 +451,44 @@
                 const response = await fetch(`${API_BASE_URL}/get_route_data/${gen}`);
                 currentRouteData = await response.json(); // Store the full data
 
-                if (currentBinsData && currentRouteData && Array.isArray(currentRouteData.best_route)) { // Ensure all data is available and best_route is an array
-                    plotCompleteRoute(
+                if (currentBinsData) { // Always plot static points first
+                    plotInitialStaticPoints(
                         currentBinsData,
                         [0, 0], // Depot location
-                        [30, 30], // Incinerator location
-                        currentRouteData.best_route // The route data itself
+                        [30, 30] // Incinerator location
                     );
                     updateInfo(currentRouteData);
-                    // Enable animate button only if there's an actual route to animate
-                    if (currentRouteData.best_route.length > 0 && currentRouteData.best_route[0].length >= 2) {
-                         animateRouteBtn.disabled = false;
+
+                    // Enable display/animate buttons only if valid route data exists for the current generation
+                    if (currentRouteData && Array.isArray(currentRouteData.best_route) && currentRouteData.best_route.length > 0) {
+                         displayRouteBtn.disabled = false; // Enable display route button
+                         // Animate button will be enabled after Display Route is clicked,
+                         // or if you want to allow direct animation, enable it here.
+                         // Keeping it disabled until display is hit for cleaner workflow.
                     } else {
+                         displayRouteBtn.disabled = true;
                          animateRouteBtn.disabled = true;
+                         console.warn(`Generation ${gen} has no valid route data (best_route is empty or not array).`);
                     }
+
                 } else {
-                    console.error("displayGeneration: Data not available for plotting or best_route is not an array.", currentBinsData, currentRouteData);
-                    statusSpan.textContent = `Error: Data not available for plotting generation ${gen}. (Route might be empty or malformed)`;
-                    updateInfo(null); // Clear info if no valid data
+                    console.error("displayGeneration: Bins data not available. Cannot plot initial points.");
+                    statusSpan.textContent = "Error: Bins data not available.";
+                    updateInfo(null);
+                    displayRouteBtn.disabled = true;
                     animateRouteBtn.disabled = true;
                 }
 
                 // Update button states for navigation
                 prevGenBtn.disabled = currentGenerationIndex === 0;
                 nextGenBtn.disabled = currentGenerationIndex === availableGenerations.length - 1;
-                statusSpan.textContent = `Displaying generation ${gen}.`;
+                statusSpan.textContent = `Displaying generation ${gen} (route hidden). Click "Display Route" or "Animate Route".`;
 
             } catch (error) {
                 console.error('Error fetching route data:', error);
                 statusSpan.textContent = `Error displaying generation ${gen}: ${error.message}`;
-                updateInfo(null); // Clear info on error
+                updateInfo(null);
+                displayRouteBtn.disabled = true;
                 animateRouteBtn.disabled = true;
             }
         }
