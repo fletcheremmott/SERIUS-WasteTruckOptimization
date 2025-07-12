@@ -155,16 +155,24 @@
             plotInitialStaticPoints(binsData, depotLoc, incineratorLoc); // Re-plot static points
 
             if (!Array.isArray(routeData)) {
-                console.warn("routeData is not an array, cannot plot routes:", routeData);
+                console.warn("plotCompleteRoute: routeData is not an array:", routeData);
                 return;
             }
 
             const updateData = [];
-            let traceIndex = Plotly.d3.select('#graph').data()[0].length; // Get current number of traces
+            // Plotly.d3.select('#graph').data()[0].length is not reliable after newPlot.
+            // When plotInitialStaticPoints calls Plotly.newPlot, it resets the graph's data.
+            // So we just add new traces.
 
             routeData.forEach((truckRoute, truckIndex) => {
                 if (!Array.isArray(truckRoute)) {
-                    console.warn(`Truck route at index ${truckIndex} is not an array:`, truckRoute);
+                    console.warn(`plotCompleteRoute: Truck route at index ${truckIndex} is not an array:`, truckRoute);
+                    return;
+                }
+
+                // If a route is just [depot, depot] or empty, don't plot lines for it, but include for animation to skip
+                if (truckRoute.length < 2 || (truckRoute.length === 2 && truckRoute[0].id === 'depot' && truckRoute[1].id === 'depot')) {
+                    console.log(`plotCompleteRoute: Skipping empty or depot-only route for Truck ${truckIndex + 1}`);
                     return;
                 }
 
@@ -191,19 +199,21 @@
                     text: route_text
                 });
 
-                // Add arrow segments (individual lines)
+                // Add arrow segments (individual lines) for full route view
                 for (let i = 0; i < truckRoute.length - 1; i++) {
                     const start_coords = truckRoute[i].coords;
                     const end_coords = truckRoute[i+1].coords;
-                    updateData.push({
-                        x: [start_coords[0], end_coords[0]],
-                        y: [start_coords[1], end_coords[1]],
-                        mode: 'lines',
-                        type: 'scatter',
-                        line: { color: routeColors[truckIndex % routeColors.length], width: 2 },
-                        showlegend: false, // Don't show legend for individual segments
-                        hoverinfo: 'skip'
-                    });
+                    if (start_coords && end_coords) { // Added null/undefined check
+                        updateData.push({
+                            x: [start_coords[0], end_coords[0]],
+                            y: [start_coords[1], end_coords[1]],
+                            mode: 'lines',
+                            type: 'scatter',
+                            line: { color: routeColors[truckIndex % routeColors.length], width: 2 },
+                            showlegend: false,
+                            hoverinfo: 'skip'
+                        });
+                    }
                 }
             });
             
@@ -225,7 +235,7 @@
 
             const routeData = currentRouteData.best_route;
             if (!Array.isArray(routeData) || routeData.length === 0) {
-                console.warn("No route data to animate.");
+                console.warn("animateRoute: No route data to animate or routeData is empty.");
                 stopAnimation();
                 return;
             }
@@ -238,20 +248,30 @@
                 }
 
                 const truckRoute = routeData[currentTruckIndex];
-                if (!Array.isArray(truckRoute) || truckRoute.length < 2) {
-                    // Skip empty or single-point routes
+                if (!Array.isArray(truckRoute) || truckRoute.length < 2 || (truckRoute.length === 2 && truckRoute[0].id === 'depot' && truckRoute[1].id === 'depot')) {
+                    // Skip empty or depot-only routes, move to next truck
+                    console.log(`animateRoute: Skipping empty or depot-only route for Truck ${currentTruckIndex + 1}`);
                     currentTruckIndex++;
                     currentRouteAnimationStep = 0;
                     return;
                 }
 
+                // Make sure we don't go out of bounds for currentRouteAnimationStep
                 if (currentRouteAnimationStep < truckRoute.length - 1) {
                     const startStop = truckRoute[currentRouteAnimationStep];
                     const endStop = truckRoute[currentRouteAnimationStep + 1];
 
+                    if (!startStop || !startStop.coords || !endStop || !endStop.coords) { // Added check for coords
+                        console.warn(`animateRoute: Invalid stop data at truck ${currentTruckIndex}, step ${currentRouteAnimationStep}`);
+                        currentRouteAnimationStep++; // Try next segment
+                        return;
+                    }
+
                     // Add trace for this segment
                     Plotly.addTraces(graphDiv, {
                         x: [startStop.coords[0], endStop.coords[0]],
+                        y: [endStop.coords[1], endStop.coords[1]], // Fix: endStop.coords[1] was used twice. Should be startStop.coords[1]
+                        // Corrected:
                         y: [startStop.coords[1], endStop.coords[1]],
                         mode: 'lines',
                         type: 'scatter',
@@ -262,20 +282,17 @@
                     });
 
                     // Add an arrowhead marker (optional, can be refined)
-                    const midX = (startStop.coords[0] + endStop.coords[0]) / 2;
-                    const midY = (startStop.coords[1] + endStop.coords[1]) / 2;
-                    // For a proper arrowhead, you'd need to calculate angle and adjust points.
-                    // For simplicity, just place a small marker at the end point for direction visual.
+                    // For proper rotation, you'd need Plotly's annotation arrows or manual trace manipulation
+                    // This is a simple marker at the end point.
                     Plotly.addTraces(graphDiv, {
                         x: [endStop.coords[0]],
                         y: [endStop.coords[1]],
                         mode: 'markers',
                         type: 'scatter',
                         marker: {
-                            symbol: 'triangle-right', // This will orient horizontally
+                            symbol: 'triangle-right',
                             size: 8,
                             color: routeColors[currentTruckIndex % routeColors.length],
-                            // For proper rotation, you'd need Plotly's annotation arrows or manual trace manipulation
                         },
                         showlegend: false,
                         hoverinfo: 'skip'
@@ -394,10 +411,11 @@
         });
 
         animateRouteBtn.addEventListener('click', () => {
-            if (currentRouteData) {
+            if (currentRouteData && Array.isArray(currentRouteData.best_route) && currentRouteData.best_route.length > 0) {
                 animateRoute();
             } else {
-                alert('Please select a generation route to animate first.');
+                alert('No valid route data available to animate for the current generation. Try a different generation or run GA again.');
+                stopAnimation(); // Ensure animation buttons are reset
             }
         });
 
@@ -414,7 +432,7 @@
                 const response = await fetch(`${API_BASE_URL}/get_route_data/${gen}`);
                 currentRouteData = await response.json(); // Store the full data
 
-                if (currentBinsData && currentRouteData && currentRouteData.best_route) { // Ensure all data is available
+                if (currentBinsData && currentRouteData && Array.isArray(currentRouteData.best_route)) { // Ensure all data is available and best_route is an array
                     plotCompleteRoute(
                         currentBinsData,
                         [0, 0], // Depot location
@@ -422,14 +440,20 @@
                         currentRouteData.best_route // The route data itself
                     );
                     updateInfo(currentRouteData);
-                    animateRouteBtn.disabled = false; // Enable animate button after plotting static route
+                    // Enable animate button only if there's an actual route to animate
+                    if (currentRouteData.best_route.length > 0 && currentRouteData.best_route[0].length >= 2) {
+                         animateRouteBtn.disabled = false;
+                    } else {
+                         animateRouteBtn.disabled = true;
+                    }
                 } else {
-                    console.error("Data not available for plotting or route is empty.", currentBinsData, currentRouteData);
-                    statusSpan.textContent = "Error: Data not available for plotting this generation.";
+                    console.error("displayGeneration: Data not available for plotting or best_route is not an array.", currentBinsData, currentRouteData);
+                    statusSpan.textContent = `Error: Data not available for plotting generation ${gen}. (Route might be empty or malformed)`;
                     updateInfo(null); // Clear info if no valid data
+                    animateRouteBtn.disabled = true;
                 }
 
-                // Update button states
+                // Update button states for navigation
                 prevGenBtn.disabled = currentGenerationIndex === 0;
                 nextGenBtn.disabled = currentGenerationIndex === availableGenerations.length - 1;
                 statusSpan.textContent = `Displaying generation ${gen}.`;
@@ -438,6 +462,7 @@
                 console.error('Error fetching route data:', error);
                 statusSpan.textContent = `Error displaying generation ${gen}: ${error.message}`;
                 updateInfo(null); // Clear info on error
+                animateRouteBtn.disabled = true;
             }
         }
 
