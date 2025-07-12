@@ -192,27 +192,9 @@
             const incToDepot = calculateDistance(incineratorLoc, depotLoc);
             const closestBinToIncDist = calculateClosestBinDistanceTheoretical(binsData, incineratorLoc);
             
-            // The logic from Python: (min_trips-1) * (2 * closest_bin_to_inc_dist) + (closest_bin_to_inc_dist + inc_to_depot)
-            // Simplified: Each trip involves going to INC and returning to DEPOT.
-            // The 'closest_bin_to_inc_dist' is used as a proxy for the 'last mile to inc' for each trip.
-            // So, for each trip, it's (closest_bin_to_inc_dist + dist_inc_to_depot)
-            
-            // The Python code's theoretical_incinerator_travel_cost was:
-            // (mst_bins_depot_distance * COST_PER_KM) + theoretical_incinerator_travel_cost
-            // where theoretical_incinerator_travel_cost was:
-            // calculate_incinerator_round_trip_cost(bins_data, incinerator_location, start_depot_location, min_incinerator_trips_theoretical, COST_PER_KM)
-            // and that function was:
-            // final_distance = ((min_trips-1) * distance_per_trip) + closest_bin_to_inc_dist + inc_to_depot
-            // distance_per_trip = 2*closest_bin_to_inc_dist
-            // So, final_distance = ((min_trips-1) * 2 * closest_bin_to_inc_dist) + closest_bin_to_inc_dist + inc_to_depot
-            // Let's re-implement this specific logic.
-
             let totalIncineratorTravelDistance = 0;
             if (minTrips > 0) {
-                // First trip (or only trip): from closest bin to incinerator, then to depot
                 totalIncineratorTravelDistance += closestBinToIncDist + incToDepot;
-                // Subsequent trips: from closest bin to incinerator and back to closest bin (or similar)
-                // The Python code used 2 * closest_bin_to_inc_dist for intermediate trips
                 totalIncineratorTravelDistance += (minTrips - 1) * (2 * closestBinToIncDist);
             }
             
