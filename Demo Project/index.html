@@ -26,20 +26,12 @@
     <!-- React and ReactDOM CDNs -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX transformation in the browser (for development only) -->
+    <!-- Babel for JSX transformation in the browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <script type="text/babel">
-        // Your React App component goes here
-        // This content is directly from the 'vrp_frontend_react' immersive
-        // It's placed inside the <script type="text/babel"> tag
-        // to allow the browser to transform JSX.
-
-        import React, { useState, useEffect, useRef, useCallback } from 'react';
-
-        // Tailwind CSS is assumed to be available in the environment.
-        // For local testing, you can include this in your HTML <head>:
-        // <script src="https://cdn.tailwindcss.com"></script>
+        // Confirm JavaScript execution
+        console.log("Babel script is running.");
 
         // --- VRP Instance Data (Parameters - mirroring Python defaults) ---
         const DEFAULT_NUM_BINS = 48;
@@ -97,16 +89,17 @@
         };
 
         const App = () => {
-            const canvasRef = useRef(null);
-            const [binsData, setBinsData] = useState({});
-            const [depotLocation, setDepotLocation] = useState(DEFAULT_START_DEPOT_LOCATION);
-            const [incineratorLocation, setIncineratorLocation] = useState(DEFAULT_INCINERATOR_LOCATION);
-            const [routeResult, setRouteResult] = useState(null); // Stores { route, totalDistance, totalIncineratorTrips, totalCost }
-            const [totalTrash, setTotalTrash] = useState(0);
-            const [isLoading, setIsLoading] = useState(false); // New loading state
-            const [error, setError] = useState(null); // New error state
+            // Access React hooks directly from the global React object
+            const canvasRef = React.useRef(null);
+            const [binsData, setBinsData] = React.useState({});
+            const [depotLocation, setDepotLocation] = React.useState(DEFAULT_START_DEPOT_LOCATION);
+            const [incineratorLocation, setIncineratorLocation] = React.useState(DEFAULT_INCINERATOR_LOCATION);
+            const [routeResult, setRouteResult] = React.useState(null); // Stores { route, totalDistance, totalIncineratorTrips, totalCost }
+            const [totalTrash, setTotalTrash] = React.useState(0);
+            const [isLoading, setIsLoading] = React.useState(false); // New loading state
+            const [error, setError] = React.useState(null); // New error state
 
-            const generatePoints = useCallback(() => {
+            const generatePoints = React.useCallback(() => {
                 const newBinsData = {};
                 let currentTotalTrash = 0;
                 for (let i = 0; i < DEFAULT_NUM_BINS; i++) {
@@ -125,7 +118,7 @@
                 setError(null); // Clear any previous errors
             }, []);
 
-            const drawCanvas = useCallback(() => {
+            const drawCanvas = React.useCallback(() => {
                 const canvas = canvasRef.current;
                 if (!canvas) return;
                 const ctx = canvas.getContext('2d');
@@ -231,12 +224,12 @@
             }, [binsData, depotLocation, incineratorLocation, routeResult]);
 
             // Initial point generation on component mount
-            useEffect(() => {
+            React.useEffect(() => {
                 generatePoints();
             }, [generatePoints]);
 
             // Redraw canvas whenever relevant data changes
-            useEffect(() => {
+            React.useEffect(() => {
                 drawCanvas();
             }, [drawCanvas, binsData, depotLocation, incineratorLocation, routeResult]);
 
