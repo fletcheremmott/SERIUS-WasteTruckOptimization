@@ -3,369 +3,340 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VRP Optimization Frontend</title>
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts - Inter (for a modern look) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <title>VRP Genetic Algorithm Simulation</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
         }
-        /* Ensure canvas is responsive */
-        canvas {
-            max-width: 100%;
-            height: auto;
-            display: block; /* Remove extra space below canvas */
-        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        #controls { margin-bottom: 20px; }
+        #graph { border: 1px solid #ddd; border-radius: 5px; margin-top: 20px; }
+        #info { margin-top: 20px; padding: 10px; background-color: #e9ecef; border-radius: 5px; }
+        .flex-container { display: flex; justify-content: space-between; align-items: flex-start; }
+        .left-panel { flex: 1; margin-right: 20px; }
+        .right-panel { flex: 1; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div class="container">
+        <h1>VRP Genetic Algorithm Simulation</h1>
 
-    <!-- React and ReactDOM CDNs -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX transformation in the browser -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+        <div id="controls">
+            <button id="generateBinsBtn">Generate New Bin Locations</button>
+            <button id="runGaBtn" disabled>Run Genetic Algorithm</button>
+            <button id="prevGenBtn" disabled>Previous Generation</button>
+            <button id="nextGenBtn" disabled>Next Generation</button>
+        </div>
 
-    <script type="text/babel">
-        // Confirm JavaScript execution
-        console.log("Babel script is running.");
+        <div id="info">
+            <p><strong>Status:</strong> <span id="status">Ready</span></p>
+            <p><strong>Current Generation:</strong> <span id="currentGen">N/A</span></p>
+            <p><strong>Theoretical Min Cost:</strong> S$<span id="theoreticalMinCost">N/A</span></p>
+            <p><strong>Current Route Fitness:</strong> S$<span id="currentFitness">N/A</span></p>
+            <p><strong>Accuracy:</strong> <span id="accuracy">N/A</span>%</p>
+            <p><strong>Distance:</strong> <span id="distance">N/A</span> km</p>
+            <p><strong>Incinerator Trips:</strong> <span id="incineratorTrips">N/A</span></p>
+            <p><strong>Trucks Used:</strong> <span id="trucksUsed">N/A</span></p>
+        </div>
 
-        // --- VRP Instance Data (Parameters - mirroring Python defaults) ---
-        const DEFAULT_NUM_BINS = 48;
-        const DEFAULT_GRID_RANGE = 15; // 15x15 km grid
-        const DEFAULT_BIN_VOLUME_MIN = 360; // kg
-        const DEFAULT_BIN_VOLUME_MAX = 660; // kg
-        const DEFAULT_BIN_SERVICE_TIME = 0.1; // hours
+        <div id="graph" style="width:100%; height:600px;"></div>
+    </div>
 
-        const DEFAULT_TRUCK_CAPACITY = 10000; // kg
-        const DEFAULT_TRUCK_SPEED = 40; // units/hour (not used in frontend logic, but kept for context)
+    <script>
+        const API_BASE_URL = 'http://127.0.0.1:5000'; // Your Flask backend URL
 
-        const DEFAULT_START_DEPOT_LOCATION = { x: 0, y: 0 };
-        const DEFAULT_END_DEPOT_LOCATION = { x: 0, y: 0 }; // Not directly used in frontend logic
+        let currentBinsData = null;
+        let theoreticalMinCost = null;
+        let availableGenerations = [];
+        let currentGenerationIndex = -1;
+        let currentRouteData = null; // Store the currently displayed route's full data
 
-        const DEFAULT_INCINERATOR_LOCATION = { x: 30, y: 30 };
-        const DEFAULT_INCINERATOR_UNLOAD_TIME = 0.5; // hours (not used in frontend logic)
-        const DEFAULT_INCINERATOR_ID = 'INC';
-        const DEFAULT_DEPOT_ID = 'DEPOT';
+        const generateBinsBtn = document.getElementById('generateBinsBtn');
+        const runGaBtn = document.getElementById('runGaBtn');
+        const prevGenBtn = document.getElementById('prevGenBtn');
+        const nextGenBtn = document.getElementById('nextGenBtn');
+        const statusSpan = document.getElementById('status');
+        const currentGenSpan = document.getElementById('currentGen');
+        const theoreticalMinCostSpan = document.getElementById('theoreticalMinCost');
+        const currentFitnessSpan = document.getElementById('currentFitness');
+        const accuracySpan = document.getElementById('accuracy');
+        const distanceSpan = document.getElementById('distance');
+        const incineratorTripsSpan = document.getElementById('incineratorTrips');
+        const trucksUsedSpan = document.getElementById('trucksUsed');
+        const graphDiv = document.getElementById('graph');
 
-        // --- Cost Parameters (prices in SGD - for display) ---
-        const COST_PER_KM = 3.2382;
-        const GATE_FEE = 80;
-        const COST_PER_ADDITIONAL_TRUCK = 200;
+        // Function to plot the route
+        function plotRoute(binsData, depotLoc, incineratorLoc, routeData) {
+            const data = [];
 
-        // --- GA Parameters for Backend (Frontend sends these) ---
-        const GA_NUM_GENERATIONS = 500; // Increased for better convergence
-        const GA_SOL_PER_POP = 100;
-        const GA_MUTATION_RATE = 0.25;
-        const GA_NUM_ELITE = 5;
+            // Plot Depot
+            data.push({
+                x: [depotLoc[0]],
+                y: [depotLoc[1]],
+                mode: 'markers',
+                type: 'scatter',
+                name: 'Depot',
+                marker: { symbol: 'square', size: 12, color: 'black' },
+                hoverinfo: 'text',
+                text: `Depot: (${depotLoc[0].toFixed(2)}, ${depotLoc[1].toFixed(2)})`
+            });
 
-        // --- Backend API URL ---
-        const BACKEND_URL = 'http://127.0.0.1:5000/run_vrp_ga'; // Flask default port
+            // Plot Incinerator
+            data.push({
+                x: [incineratorLoc[0]],
+                y: [incineratorLoc[1]],
+                mode: 'markers',
+                type: 'scatter',
+                name: 'Incinerator',
+                marker: { symbol: 'triangle-up', size: 12, color: 'purple' },
+                hoverinfo: 'text',
+                text: `Incinerator: (${incineratorLoc[0].toFixed(2)}, ${incineratorLoc[1].toFixed(2)})`
+            });
 
-        // --- Utility Functions (JavaScript equivalents) ---
-        const calculateDistance = (loc1, loc2) => {
-            return Math.sqrt(Math.pow(loc1.x - loc2.x, 2) + Math.pow(loc1.y - loc2.y, 2));
-        };
+            // Plot Bins
+            const bin_x = [];
+            const bin_y = [];
+            const bin_text = [];
+            for (const binId in binsData) {
+                bin_x.push(binsData[binId].loc[0]);
+                bin_y.push(binsData[binId].loc[1]);
+                bin_text.push(`Bin ${binId}: Vol ${binsData[binId].volume.toFixed(0)}kg`);
+            }
+            data.push({
+                x: bin_x,
+                y: bin_y,
+                mode: 'markers',
+                type: 'scatter',
+                name: 'Bins',
+                marker: { symbol: 'circle', size: 8, color: 'blue' },
+                hoverinfo: 'text',
+                text: bin_text
+            });
 
-        const getCanvasCoordinates = (loc, canvasWidth, canvasHeight, gridRange, incineratorLoc) => {
-            // Determine the max X and Y extent to scale correctly
-            const maxX = Math.max(gridRange, incineratorLoc.x);
-            const maxY = Math.max(gridRange, incineratorLoc.y);
-            const effectiveGridRangeX = maxX + 5; // Add some padding
-            const effectiveGridRangeY = maxY + 5; // Add some padding
+            // Plot Routes
+            const colors = ['red', 'green', 'cyan', 'orange', 'darkblue', 'brown', 'pink', 'lime'];
+            routeData.forEach((truckRoute, truckIndex) => {
+                const route_x = [];
+                const route_y = [];
+                const route_text = [];
+                let prevCoords = null;
 
-            // Scale factor to map grid coordinates to canvas pixels
-            const scaleX = canvasWidth / effectiveGridRangeX;
-            const scaleY = canvasHeight / effectiveGridRangeY;
+                truckRoute.forEach(stop => {
+                    route_x.push(stop.coords[0]);
+                    route_y.push(stop.coords[1]);
+                    route_text.push(stop.id);
 
-            // Adjust Y coordinate for canvas (0,0 is top-left)
-            return {
-                x: loc.x * scaleX,
-                y: canvasHeight - (loc.y * scaleY) // Invert Y-axis for typical Cartesian coordinates
-            };
-        };
-
-        const App = () => {
-            // Access React hooks directly from the global React object
-            const canvasRef = React.useRef(null);
-            const [binsData, setBinsData] = React.useState({});
-            const [depotLocation, setDepotLocation] = React.useState(DEFAULT_START_DEPOT_LOCATION);
-            const [incineratorLocation, setIncineratorLocation] = React.useState(DEFAULT_INCINERATOR_LOCATION);
-            const [routeResult, setRouteResult] = React.useState(null); // Stores { route, totalDistance, totalIncineratorTrips, totalCost }
-            const [totalTrash, setTotalTrash] = React.useState(0);
-            const [isLoading, setIsLoading] = React.useState(false); // New loading state
-            const [error, setError] = React.useState(null); // New error state
-
-            const generatePoints = React.useCallback(() => {
-                const newBinsData = {};
-                let currentTotalTrash = 0;
-                for (let i = 0; i < DEFAULT_NUM_BINS; i++) {
-                    const binId = `bin${i + 1}`;
-                    const locX = Math.random() * DEFAULT_GRID_RANGE;
-                    const locY = Math.random() * DEFAULT_GRID_RANGE;
-                    const volume = Math.random() * (DEFAULT_BIN_VOLUME_MAX - DEFAULT_BIN_VOLUME_MIN) + DEFAULT_BIN_VOLUME_MIN;
-                    newBinsData[binId] = { loc: { x: locX, y: locY }, volume: volume, service_time: DEFAULT_BIN_SERVICE_TIME };
-                    currentTotalTrash += volume;
-                }
-                setBinsData(newBinsData);
-                setDepotLocation(DEFAULT_START_DEPOT_LOCATION);
-                setIncineratorLocation(DEFAULT_INCINERATOR_LOCATION);
-                setTotalTrash(currentTotalTrash);
-                setRouteResult(null); // Clear previous route when new points are generated
-                setError(null); // Clear any previous errors
-            }, []);
-
-            const drawCanvas = React.useCallback(() => {
-                const canvas = canvasRef.current;
-                if (!canvas) return;
-                const ctx = canvas.getContext('2d');
-                const canvasWidth = canvas.width;
-                const canvasHeight = canvas.height;
-
-                ctx.clearRect(0, 0, canvasWidth, canvasHeight); // Clear canvas
-
-                // Draw grid lines
-                ctx.strokeStyle = '#e0e0e0';
-                ctx.lineWidth = 0.5;
-                const maxX = Math.max(DEFAULT_GRID_RANGE, DEFAULT_INCINERATOR_LOCATION.x);
-                const maxY = Math.max(DEFAULT_GRID_RANGE, DEFAULT_INCINERATOR_LOCATION.y);
-                const effectiveGridRangeX = maxX + 5;
-                const effectiveGridRangeY = maxY + 5;
-                const scaleX = canvasWidth / effectiveGridRangeX;
-                const scaleY = canvasHeight / effectiveGridRangeY;
-
-                for (let i = 0; i <= effectiveGridRangeX; i += 5) { // Every 5km
-                    ctx.beginPath();
-                    ctx.moveTo(getCanvasCoordinates({ x: i, y: 0 }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).x, 0);
-                    ctx.lineTo(getCanvasCoordinates({ x: i, y: 0 }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).x, canvasHeight);
-                    ctx.stroke();
-                }
-                for (let i = 0; i <= effectiveGridRangeY; i += 5) { // Every 5km
-                    ctx.beginPath();
-                    ctx.moveTo(0, getCanvasCoordinates({ x: 0, y: i }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).y);
-                    ctx.lineTo(canvasWidth, getCanvasCoordinates({ x: 0, y: i }, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation).y);
-                    ctx.stroke();
-                }
-
-                // Draw Depot
-                ctx.fillStyle = 'black';
-                const depotCanvasLoc = getCanvasCoordinates(depotLocation, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
-                ctx.beginPath();
-                ctx.arc(depotCanvasLoc.x, depotCanvasLoc.y, 8, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillText("Depot", depotCanvasLoc.x + 10, depotCanvasLoc.y + 5);
-
-                // Draw Incinerator
-                ctx.fillStyle = 'purple';
-                const incCanvasLoc = getCanvasCoordinates(incineratorLocation, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
-                ctx.beginPath();
-                ctx.moveTo(incCanvasLoc.x, incCanvasLoc.y - 8);
-                ctx.lineTo(incCanvasLoc.x - 8, incCanvasLoc.y + 8);
-                ctx.lineTo(incCanvasLoc.x + 8, incCanvasLoc.y + 8);
-                ctx.closePath();
-                ctx.fill();
-                ctx.fillText("INC", incCanvasLoc.x + 10, incCanvasLoc.y + 5);
-
-                // Draw Bins
-                ctx.fillStyle = 'blue';
-                for (const binId in binsData) {
-                    const binLoc = binsData[binId].loc;
-                    const canvasLoc = getCanvasCoordinates(binLoc, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
-                    ctx.beginPath();
-                    ctx.arc(canvasLoc.x, canvasLoc.y, 5, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillText(binId, canvasLoc.x + 8, canvasLoc.y + 3);
-                }
-
-                // Draw Route if available
-                if (routeResult && routeResult.route && routeResult.route.length > 1) {
-                    ctx.strokeStyle = 'red';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-
-                    let prevCanvasLoc = null;
-
-                    for (let i = 0; i < routeResult.route.length; i++) {
-                        const stopId = routeResult.route[i];
-                        let stopLoc;
-
-                        if (stopId === DEFAULT_DEPOT_ID) {
-                            stopLoc = depotLocation;
-                        } else if (stopId === DEFAULT_INCINERATOR_ID) {
-                            stopLoc = incineratorLocation;
-                        } else {
-                            stopLoc = binsData[stopId]?.loc;
-                        }
-
-                        if (stopLoc) {
-                            const currentCanvasLoc = getCanvasCoordinates(stopLoc, canvasWidth, canvasHeight, DEFAULT_GRID_RANGE, incineratorLocation);
-                            if (i === 0) {
-                                ctx.moveTo(currentCanvasLoc.x, currentCanvasLoc.y);
-                            } else {
-                                ctx.lineTo(currentCanvasLoc.x, currentCanvasLoc.y);
-                                // Draw arrow
-                                const headlen = 10; // length of head in pixels
-                                const dx = currentCanvasLoc.x - prevCanvasLoc.x;
-                                const dy = currentCanvasLoc.y - prevCanvasLoc.y;
-                                const angle = Math.atan2(dy, dx);
-                                ctx.lineTo(currentCanvasLoc.x - headlen * Math.cos(angle - Math.PI / 6), currentCanvasLoc.y - headlen * Math.sin(angle - Math.PI / 6));
-                                ctx.moveTo(currentCanvasLoc.x, currentCanvasLoc.y);
-                                ctx.lineTo(currentCanvasLoc.x - headlen * Math.cos(angle + Math.PI / 6), currentCanvasLoc.y - headlen * Math.sin(angle + Math.PI / 6));
-                                ctx.moveTo(currentCanvasLoc.x, currentCanvasLoc.y); // Move back to end point for next line segment
-                            }
-                            prevCanvasLoc = currentCanvasLoc;
-                        }
+                    // Add arrows for direction
+                    if (prevCoords) {
+                        data.push({
+                            x: [prevCoords[0], stop.coords[0]],
+                            y: [prevCoords[1], stop.coords[1]],
+                            mode: 'lines',
+                            type: 'scatter',
+                            line: { color: colors[truckIndex % colors.length], width: 2 },
+                            showlegend: false,
+                            hoverinfo: 'skip'
+                        });
+                        // Plotly does not have native arrowheads. We can draw an additional marker or use annotations
+                        // For simplicity, we just draw lines here. Advanced users can use annotations for arrows.
                     }
-                    ctx.stroke();
-                }
-            }, [binsData, depotLocation, incineratorLocation, routeResult]);
+                    prevCoords = stop.coords;
+                });
 
-            // Initial point generation on component mount
-            React.useEffect(() => {
-                generatePoints();
-            }, [generatePoints]);
+                data.push({
+                    x: route_x,
+                    y: route_y,
+                    mode: 'lines+markers',
+                    type: 'scatter',
+                    name: `Truck ${truckIndex + 1}`,
+                    line: { color: colors[truckIndex % colors.length], width: 2 },
+                    marker: { symbol: 'circle', size: 6, color: colors[truckIndex % colors.length] },
+                    hoverinfo: 'text',
+                    text: route_text
+                });
+            });
 
-            // Redraw canvas whenever relevant data changes
-            React.useEffect(() => {
-                drawCanvas();
-            }, [drawCanvas, binsData, depotLocation, incineratorLocation, routeResult]);
-
-            const handleRunGA = async () => {
-                setIsLoading(true);
-                setError(null);
-                setRouteResult(null); // Clear previous route
-
-                try {
-                    const response = await fetch(BACKEND_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            num_bins: DEFAULT_NUM_BINS,
-                            grid_range: DEFAULT_GRID_RANGE,
-                            bin_volume_min: DEFAULT_BIN_VOLUME_MIN,
-                            bin_volume_max: DEFAULT_BIN_VOLUME_MAX,
-                            truck_capacity: DEFAULT_TRUCK_CAPACITY,
-                            num_generations: GA_NUM_GENERATIONS,
-                            sol_per_pop: GA_SOL_PER_POP,
-                            mutation_rate: GA_MUTATION_RATE,
-                            num_elite: GA_NUM_ELITE,
-                            // Pass current binsData if you want to use the *exact* same points for GA
-                            // Otherwise, backend will generate new random points based on params
-                            // bins_data: binsData // Uncomment this if you want to send existing bins
-                        }),
-                    });
-
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-                    }
-
-                    const data = await response.json();
-                    
-                    // Update binsData with the exact bins generated/used by the backend GA
-                    // This ensures the frontend plot matches the backend's solution
-                    setBinsData(data.binsData);
-                    setDepotLocation(data.depotLocation);
-                    setIncineratorLocation(data.incineratorLocation);
-                    setTotalTrash(data.totalTrash);
-
-                    setRouteResult(data.routeResult);
-
-                } catch (err) {
-                    console.error("Failed to fetch GA results:", err);
-                    setError(`Failed to get GA results: ${err.message}. Make sure the Python backend is running.`);
-                } finally {
-                    setIsLoading(false);
-                }
+            const layout = {
+                title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]}`,
+                xaxis: { title: 'X-coordinate (km)' },
+                yaxis: { title: 'Y-coordinate (km)', scaleanchor: "x", scaleratio: 1 },
+                hovermode: 'closest',
+                showlegend: true,
+                legend: { x: 1.05, y: 1, xanchor: 'left', yanchor: 'top' }
             };
 
-            return (
-                <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4 font-inter">
-                    <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-4xl">
-                        <h1 className="text-3xl font-bold text-center text-gray-800 mb-6">VRP Optimization Frontend</h1>
+            Plotly.newPlot(graphDiv, data, layout);
+        }
 
-                        <div className="flex justify-center space-x-4 mb-6">
-                            <button
-                                onClick={generatePoints}
-                                className="px-6 py-3 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition duration-200 ease-in-out"
-                                disabled={isLoading}
-                            >
-                                Generate New Points
-                            </button>
-                            <button
-                                onClick={handleRunGA}
-                                className="px-6 py-3 bg-green-600 text-white rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition duration-200 ease-in-out"
-                                disabled={isLoading}
-                            >
-                                {isLoading ? 'Running GA...' : 'Run GA Optimization'}
-                            </button>
-                        </div>
+        // Event Listeners
+        generateBinsBtn.addEventListener('click', async () => {
+            statusSpan.textContent = 'Generating new bins...';
+            runGaBtn.disabled = true;
+            prevGenBtn.disabled = true;
+            nextGenBtn.disabled = true;
+            try {
+                const response = await fetch(`${API_BASE_URL}/generate_bins`);
+                const result = await response.json();
+                currentBinsData = result.bins_data;
+                const depotLoc = result.depot_location;
+                const incineratorLoc = result.incinerator_location;
+                theoreticalMinCost = null; // Reset theoretical min cost
+                currentGenerationIndex = -1; // Reset generation viewer
 
-                        {isLoading && (
-                            <div className="text-center text-blue-500 mb-4">
-                                <p>Running Genetic Algorithm... This might take a moment.</p>
-                                <p>Generations: {GA_NUM_GENERATIONS}, Population: {GA_SOL_PER_POP}</p>
-                            </div>
-                        )}
+                // Clear previous plot and info
+                Plotly.newPlot(graphDiv, [], {}); // Clear plot
+                updateInfo(null); // Clear info
 
-                        {error && (
-                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-                                <strong className="font-bold">Error:</strong>
-                                <span className="block sm:inline"> {error}</span>
-                            </div>
-                        )}
+                // Plot just bins, depot, and incinerator
+                const initialData = [];
+                initialData.push({
+                    x: [depotLoc[0]], y: [depotLoc[1]], mode: 'markers', type: 'scatter', name: 'Depot', marker: { symbol: 'square', size: 12, color: 'black' }
+                });
+                initialData.push({
+                    x: [incineratorLoc[0]], y: [incineratorLoc[1]], mode: 'markers', type: 'scatter', name: 'Incinerator', marker: { symbol: 'triangle-up', size: 12, color: 'purple' }
+                });
+                const bin_x = []; const bin_y = [];
+                for (const binId in currentBinsData) {
+                    bin_x.push(currentBinsData[binId].loc[0]);
+                    bin_y.push(currentBinsData[binId].loc[1]);
+                }
+                initialData.push({
+                    x: bin_x, y: bin_y, mode: 'markers', type: 'scatter', name: 'Bins', marker: { symbol: 'circle', size: 8, color: 'blue' }
+                });
+                Plotly.newPlot(graphDiv, initialData, {
+                    title: 'Generated Bin Locations',
+                    xaxis: { title: 'X-coordinate (km)' },
+                    yaxis: { title: 'Y-coordinate (km)', scaleanchor: "x", scaleratio: 1 },
+                    showlegend: true,
+                    legend: { x: 1.05, y: 1, xanchor: 'left', yanchor: 'top' }
+                });
 
-                        <div className="border border-gray-300 rounded-lg overflow-hidden mb-6">
-                            <canvas ref={canvasRef} width="800" height="600" className="bg-white"></canvas>
-                        </div>
 
-                        {routeResult && (
-                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                                <h2 className="text-xl font-semibold text-gray-700 mb-3">GA Optimized Route Details:</h2>
-                                <p className="text-gray-600 mb-1">
-                                    <strong>Total Distance:</strong> {routeResult.totalDistance.toFixed(2)} km
-                                </p>
-                                <p className="text-gray-600 mb-1">
-                                    <strong>Total Incinerator Trips:</strong> {routeResult.totalIncineratorTrips}
-                                </p>
-                                <p className="text-gray-600 mb-1">
-                                    <strong>Number of Trucks Used:</strong> {routeResult.trucksUsed}
-                                </p>
-                                <p className="text-gray-600 mb-1">
-                                    <strong>Final Total Cost:</strong> S${routeResult.totalCost.toFixed(2)}
-                                </p>
-                                <div className="mt-2 text-sm text-gray-500">
-                                    <strong>Penalties (should be 0 for valid solution):</strong>
-                                    <ul className="list-disc list-inside ml-4">
-                                        <li>Capacity Violation: S${routeResult.capacityPenalty.toFixed(2)}</li>
-                                        <li>Unvisited Bin: S${routeResult.unvisitedPenalty.toFixed(2)}</li>
-                                        <li>Invalid Bin: S${routeResult.invalidBinPenalty.toFixed(2)}</li>
-                                    </ul>
-                                </div>
-                                <div className="mt-4 text-sm text-gray-500">
-                                    <strong>Route Sequence (Truck 1):</strong> {routeResult.route.join(' -> ')}
-                                </div>
-                            </div>
-                        )}
+                statusSpan.textContent = 'Bins generated. Ready to run GA.';
+                runGaBtn.disabled = false;
+            } catch (error) {
+                console.error('Error generating bins:', error);
+                statusSpan.textContent = `Error: ${error.message}`;
+            }
+        });
 
-                        <div className="mt-6 text-center text-gray-500 text-sm">
-                            <p>Depot: ({depotLocation.x}, {depotLocation.y})</p>
-                            <p>Incinerator: ({incineratorLocation.x}, {incineratorLocation.y})</p>
-                            <p>Total Trash Volume: {totalTrash.toFixed(2)} kg</p>
-                            <p>Truck Capacity: {DEFAULT_TRUCK_CAPACITY} kg</p>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
+        runGaBtn.addEventListener('click', async () => {
+            if (!currentBinsData) {
+                alert('Please generate bin locations first!');
+                return;
+            }
+            statusSpan.textContent = 'Running Genetic Algorithm... This may take a while.';
+            runGaBtn.disabled = true;
+            generateBinsBtn.disabled = true;
+            prevGenBtn.disabled = true;
+            nextGenBtn.disabled = true;
+            try {
+                const response = await fetch(`${API_BASE_URL}/run_ga`, { method: 'POST' });
+                const result = await response.json();
+                console.log(result);
 
-        // Render the App component
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+                theoreticalMinCost = result.theoretical_minimum_cost_benchmark;
+                theoreticalMinCostSpan.textContent = theoreticalMinCost.toFixed(2);
+
+                availableGenerations = Object.keys(result.results_by_generation).map(Number).sort((a, b) => a - b);
+                currentGenerationIndex = -1; // Reset to -1 so 'next' button can show first result
+
+                statusSpan.textContent = 'GA completed. Click "Next Generation" to view results.';
+                generateBinsBtn.disabled = false;
+                nextGenBtn.disabled = availableGenerations.length === 0;
+                prevGenBtn.disabled = true; // Initially disabled
+                
+                // Automatically display the first generation if available
+                if (availableGenerations.length > 0) {
+                    currentGenerationIndex = 0;
+                    displayGeneration(availableGenerations[currentGenerationIndex]);
+                }
+
+            } catch (error) {
+                console.error('Error running GA:', error);
+                statusSpan.textContent = `Error: ${error.message}`;
+                runGaBtn.disabled = false;
+                generateBinsBtn.disabled = false;
+            }
+        });
+
+        nextGenBtn.addEventListener('click', () => {
+            if (currentGenerationIndex < availableGenerations.length - 1) {
+                currentGenerationIndex++;
+                displayGeneration(availableGenerations[currentGenerationIndex]);
+            }
+        });
+
+        prevGenBtn.addEventListener('click', () => {
+            if (currentGenerationIndex > 0) {
+                currentGenerationIndex--;
+                displayGeneration(availableGenerations[currentGenerationIndex]);
+            }
+        });
+
+        async function displayGeneration(gen) {
+            statusSpan.textContent = `Fetching data for generation ${gen}...`;
+            try {
+                const response = await fetch(`${API_BASE_URL}/get_route_data/${gen}`);
+                currentRouteData = await response.json(); // Store the full data
+
+                if (currentBinsData) { // Ensure bins data is available for plotting
+                    plotRoute(
+                        currentBinsData,
+                        [0, 0], // Depot location
+                        [30, 30], // Incinerator location
+                        currentRouteData.best_route // The route data itself
+                    );
+                    updateInfo(currentRouteData);
+                } else {
+                    console.error("Bins data not available for plotting.");
+                    statusSpan.textContent = "Error: Bins data not available.";
+                }
+
+                // Update button states
+                prevGenBtn.disabled = currentGenerationIndex === 0;
+                nextGenBtn.disabled = currentGenerationIndex === availableGenerations.length - 1;
+                statusSpan.textContent = `Displaying generation ${gen}.`;
+
+            } catch (error) {
+                console.error('Error fetching route data:', error);
+                statusSpan.textContent = `Error displaying generation ${gen}: ${error.message}`;
+            }
+        }
+
+        function updateInfo(data) {
+            if (data) {
+                currentGenSpan.textContent = availableGenerations[currentGenerationIndex];
+                currentFitnessSpan.textContent = data.fitness.toFixed(2);
+                accuracySpan.textContent = data.accuracy.toFixed(2);
+                distanceSpan.textContent = data.total_distance.toFixed(2);
+                incineratorTripsSpan.textContent = data.incinerator_trips;
+                trucksUsedSpan.textContent = data.trucks_used;
+            } else {
+                currentGenSpan.textContent = 'N/A';
+                currentFitnessSpan.textContent = 'N/A';
+                accuracySpan.textContent = 'N/A';
+                distanceSpan.textContent = 'N/A';
+                incineratorTripsSpan.textContent = 'N/A';
+                trucksUsedSpan.textContent = 'N/A';
+            }
+            theoreticalMinCostSpan.textContent = theoreticalMinCost !== null ? theoreticalMinCost.toFixed(2) : 'N/A';
+        }
+
+        // Initial state
+        generateBinsBtn.click(); // Automatically generate bins on page load
     </script>
 </body>
 </html>
