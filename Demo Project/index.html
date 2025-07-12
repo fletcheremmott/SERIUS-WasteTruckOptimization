@@ -38,6 +38,8 @@
             <button id="runGaBtn" disabled>Run Genetic Algorithm</button>
             <button id="prevGenBtn" disabled>Previous Generation</button>
             <button id="nextGenBtn" disabled>Next Generation</button>
+            <button id="animateRouteBtn" disabled>Animate Current Route</button>
+            <button id="stopAnimationBtn" disabled>Stop Animation</button>
         </div>
 
         <div id="info">
@@ -63,10 +65,18 @@
         let currentGenerationIndex = -1;
         let currentRouteData = null; // Store the currently displayed route's full data
 
+        // Animation variables
+        let animationInterval = null;
+        let currentRouteAnimationStep = 0; // Tracks the current segment being drawn
+        let currentTruckIndex = 0; // Tracks the current truck being animated
+
         const generateBinsBtn = document.getElementById('generateBinsBtn');
         const runGaBtn = document.getElementById('runGaBtn');
         const prevGenBtn = document.getElementById('prevGenBtn');
         const nextGenBtn = document.getElementById('nextGenBtn');
+        const animateRouteBtn = document.getElementById('animateRouteBtn'); // New button
+        const stopAnimationBtn = document.getElementById('stopAnimationBtn'); // New button
+
         const statusSpan = document.getElementById('status');
         const currentGenSpan = document.getElementById('currentGen');
         const theoreticalMinCostSpan = document.getElementById('theoreticalMinCost');
@@ -77,8 +87,10 @@
         const trucksUsedSpan = document.getElementById('trucksUsed');
         const graphDiv = document.getElementById('graph');
 
-        // Function to plot the route
-        function plotRoute(binsData, depotLoc, incineratorLoc, routeData) {
+        const routeColors = ['red', 'green', 'cyan', 'orange', 'darkblue', 'brown', 'pink', 'lime'];
+
+        // Function to plot the initial static points (bins, depot, incinerator)
+        function plotInitialStaticPoints(binsData, depotLoc, incineratorLoc) {
             const data = [];
 
             // Plot Depot
@@ -125,51 +137,8 @@
                 text: bin_text
             });
 
-            // Plot Routes
-            const colors = ['red', 'green', 'cyan', 'orange', 'darkblue', 'brown', 'pink', 'lime'];
-            routeData.forEach((truckRoute, truckIndex) => {
-                const route_x = [];
-                const route_y = [];
-                const route_text = [];
-                let prevCoords = null;
-
-                truckRoute.forEach(stop => {
-                    route_x.push(stop.coords[0]);
-                    route_y.push(stop.coords[1]);
-                    route_text.push(stop.id);
-
-                    // Add arrows for direction
-                    if (prevCoords) {
-                        data.push({
-                            x: [prevCoords[0], stop.coords[0]],
-                            y: [prevCoords[1], stop.coords[1]],
-                            mode: 'lines',
-                            type: 'scatter',
-                            line: { color: colors[truckIndex % colors.length], width: 2 },
-                            showlegend: false,
-                            hoverinfo: 'skip'
-                        });
-                        // Plotly does not have native arrowheads. We can draw an additional marker or use annotations
-                        // For simplicity, we just draw lines here. Advanced users can use annotations for arrows.
-                    }
-                    prevCoords = stop.coords;
-                });
-
-                data.push({
-                    x: route_x,
-                    y: route_y,
-                    mode: 'lines+markers',
-                    type: 'scatter',
-                    name: `Truck ${truckIndex + 1}`,
-                    line: { color: colors[truckIndex % colors.length], width: 2 },
-                    marker: { symbol: 'circle', size: 6, color: colors[truckIndex % colors.length] },
-                    hoverinfo: 'text',
-                    text: route_text
-                });
-            });
-
             const layout = {
-                title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]}`,
+                title: 'VRP Simulation',
                 xaxis: { title: 'X-coordinate (km)' },
                 yaxis: { title: 'Y-coordinate (km)', scaleanchor: "x", scaleratio: 1 },
                 hovermode: 'closest',
@@ -180,12 +149,168 @@
             Plotly.newPlot(graphDiv, data, layout);
         }
 
+        // Function to plot the complete route (static, non-animated)
+        function plotCompleteRoute(binsData, depotLoc, incineratorLoc, routeData) {
+            stopAnimation(); // Stop any ongoing animation
+            plotInitialStaticPoints(binsData, depotLoc, incineratorLoc); // Re-plot static points
+
+            if (!Array.isArray(routeData)) {
+                console.warn("routeData is not an array, cannot plot routes:", routeData);
+                return;
+            }
+
+            const updateData = [];
+            let traceIndex = Plotly.d3.select('#graph').data()[0].length; // Get current number of traces
+
+            routeData.forEach((truckRoute, truckIndex) => {
+                if (!Array.isArray(truckRoute)) {
+                    console.warn(`Truck route at index ${truckIndex} is not an array:`, truckRoute);
+                    return;
+                }
+
+                const route_x = [];
+                const route_y = [];
+                const route_text = [];
+                
+                // Add truck route as a single line+markers trace
+                truckRoute.forEach(stop => {
+                    route_x.push(stop.coords[0]);
+                    route_y.push(stop.coords[1]);
+                    route_text.push(stop.id);
+                });
+
+                updateData.push({
+                    x: route_x,
+                    y: route_y,
+                    mode: 'lines+markers',
+                    type: 'scatter',
+                    name: `Truck ${truckIndex + 1}`,
+                    line: { color: routeColors[truckIndex % routeColors.length], width: 2 },
+                    marker: { symbol: 'circle', size: 6, color: routeColors[truckIndex % routeColors.length] },
+                    hoverinfo: 'text',
+                    text: route_text
+                });
+
+                // Add arrow segments (individual lines)
+                for (let i = 0; i < truckRoute.length - 1; i++) {
+                    const start_coords = truckRoute[i].coords;
+                    const end_coords = truckRoute[i+1].coords;
+                    updateData.push({
+                        x: [start_coords[0], end_coords[0]],
+                        y: [start_coords[1], end_coords[1]],
+                        mode: 'lines',
+                        type: 'scatter',
+                        line: { color: routeColors[truckIndex % routeColors.length], width: 2 },
+                        showlegend: false, // Don't show legend for individual segments
+                        hoverinfo: 'skip'
+                    });
+                }
+            });
+            
+            // Add all route traces in one go
+            Plotly.addTraces(graphDiv, updateData);
+            Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Complete)` });
+        }
+
+
+        // Function to animate the route
+        function animateRoute() {
+            stopAnimation(); // Stop any previous animation
+            plotInitialStaticPoints(currentBinsData, [0,0], [30,30]); // Re-initialize plot with static points
+            
+            currentRouteAnimationStep = 0;
+            currentTruckIndex = 0;
+            animateRouteBtn.disabled = true;
+            stopAnimationBtn.disabled = false;
+
+            const routeData = currentRouteData.best_route;
+            if (!Array.isArray(routeData) || routeData.length === 0) {
+                console.warn("No route data to animate.");
+                stopAnimation();
+                return;
+            }
+
+            animationInterval = setInterval(() => {
+                if (currentTruckIndex >= routeData.length) {
+                    stopAnimation();
+                    Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Animation Complete)` });
+                    return;
+                }
+
+                const truckRoute = routeData[currentTruckIndex];
+                if (!Array.isArray(truckRoute) || truckRoute.length < 2) {
+                    // Skip empty or single-point routes
+                    currentTruckIndex++;
+                    currentRouteAnimationStep = 0;
+                    return;
+                }
+
+                if (currentRouteAnimationStep < truckRoute.length - 1) {
+                    const startStop = truckRoute[currentRouteAnimationStep];
+                    const endStop = truckRoute[currentRouteAnimationStep + 1];
+
+                    // Add trace for this segment
+                    Plotly.addTraces(graphDiv, {
+                        x: [startStop.coords[0], endStop.coords[0]],
+                        y: [startStop.coords[1], endStop.coords[1]],
+                        mode: 'lines',
+                        type: 'scatter',
+                        name: `Truck ${currentTruckIndex + 1} Segment ${currentRouteAnimationStep + 1}`,
+                        line: { color: routeColors[currentTruckIndex % routeColors.length], width: 2 },
+                        showlegend: false, // Hide legend for individual segments
+                        hoverinfo: 'skip'
+                    });
+
+                    // Add an arrowhead marker (optional, can be refined)
+                    const midX = (startStop.coords[0] + endStop.coords[0]) / 2;
+                    const midY = (startStop.coords[1] + endStop.coords[1]) / 2;
+                    // For a proper arrowhead, you'd need to calculate angle and adjust points.
+                    // For simplicity, just place a small marker at the end point for direction visual.
+                    Plotly.addTraces(graphDiv, {
+                        x: [endStop.coords[0]],
+                        y: [endStop.coords[1]],
+                        mode: 'markers',
+                        type: 'scatter',
+                        marker: {
+                            symbol: 'triangle-right', // This will orient horizontally
+                            size: 8,
+                            color: routeColors[currentTruckIndex % routeColors.length],
+                            // For proper rotation, you'd need Plotly's annotation arrows or manual trace manipulation
+                        },
+                        showlegend: false,
+                        hoverinfo: 'skip'
+                    });
+
+                    currentRouteAnimationStep++;
+                } else {
+                    // Move to the next truck
+                    currentTruckIndex++;
+                    currentRouteAnimationStep = 0;
+                }
+                Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Animating Truck ${currentTruckIndex + 1})` });
+            }, 100); // 100 ms = 0.1 seconds
+        }
+
+        function stopAnimation() {
+            if (animationInterval) {
+                clearInterval(animationInterval);
+                animationInterval = null;
+            }
+            animateRouteBtn.disabled = false;
+            stopAnimationBtn.disabled = true;
+        }
+
+
         // Event Listeners
         generateBinsBtn.addEventListener('click', async () => {
             statusSpan.textContent = 'Generating new bins...';
             runGaBtn.disabled = true;
             prevGenBtn.disabled = true;
             nextGenBtn.disabled = true;
+            animateRouteBtn.disabled = true;
+            stopAnimationBtn.disabled = true;
+            stopAnimation(); // Ensure no animation is running
+
             try {
                 const response = await fetch(`${API_BASE_URL}/generate_bins`);
                 const result = await response.json();
@@ -199,30 +324,7 @@
                 Plotly.newPlot(graphDiv, [], {}); // Clear plot
                 updateInfo(null); // Clear info
 
-                // Plot just bins, depot, and incinerator
-                const initialData = [];
-                initialData.push({
-                    x: [depotLoc[0]], y: [depotLoc[1]], mode: 'markers', type: 'scatter', name: 'Depot', marker: { symbol: 'square', size: 12, color: 'black' }
-                });
-                initialData.push({
-                    x: [incineratorLoc[0]], y: [incineratorLoc[1]], mode: 'markers', type: 'scatter', name: 'Incinerator', marker: { symbol: 'triangle-up', size: 12, color: 'purple' }
-                });
-                const bin_x = []; const bin_y = [];
-                for (const binId in currentBinsData) {
-                    bin_x.push(currentBinsData[binId].loc[0]);
-                    bin_y.push(currentBinsData[binId].loc[1]);
-                }
-                initialData.push({
-                    x: bin_x, y: bin_y, mode: 'markers', type: 'scatter', name: 'Bins', marker: { symbol: 'circle', size: 8, color: 'blue' }
-                });
-                Plotly.newPlot(graphDiv, initialData, {
-                    title: 'Generated Bin Locations',
-                    xaxis: { title: 'X-coordinate (km)' },
-                    yaxis: { title: 'Y-coordinate (km)', scaleanchor: "x", scaleratio: 1 },
-                    showlegend: true,
-                    legend: { x: 1.05, y: 1, xanchor: 'left', yanchor: 'top' }
-                });
-
+                plotInitialStaticPoints(currentBinsData, depotLoc, incineratorLoc);
 
                 statusSpan.textContent = 'Bins generated. Ready to run GA.';
                 runGaBtn.disabled = false;
@@ -242,6 +344,10 @@
             generateBinsBtn.disabled = true;
             prevGenBtn.disabled = true;
             nextGenBtn.disabled = true;
+            animateRouteBtn.disabled = true;
+            stopAnimationBtn.disabled = true;
+            stopAnimation(); // Ensure no animation is running
+
             try {
                 const response = await fetch(`${API_BASE_URL}/run_ga`, { method: 'POST' });
                 const result = await response.json();
@@ -250,6 +356,7 @@
                 theoreticalMinCost = result.theoretical_minimum_cost_benchmark;
                 theoreticalMinCostSpan.textContent = theoreticalMinCost.toFixed(2);
 
+                // Use result.results_by_generation directly
                 availableGenerations = Object.keys(result.results_by_generation).map(Number).sort((a, b) => a - b);
                 currentGenerationIndex = -1; // Reset to -1 so 'next' button can show first result
 
@@ -286,23 +393,40 @@
             }
         });
 
+        animateRouteBtn.addEventListener('click', () => {
+            if (currentRouteData) {
+                animateRoute();
+            } else {
+                alert('Please select a generation route to animate first.');
+            }
+        });
+
+        stopAnimationBtn.addEventListener('click', stopAnimation);
+
+
         async function displayGeneration(gen) {
             statusSpan.textContent = `Fetching data for generation ${gen}...`;
+            animateRouteBtn.disabled = true; // Disable animate button while fetching/plotting
+            stopAnimationBtn.disabled = true;
+            stopAnimation(); // Stop any ongoing animation
+
             try {
                 const response = await fetch(`${API_BASE_URL}/get_route_data/${gen}`);
                 currentRouteData = await response.json(); // Store the full data
 
-                if (currentBinsData) { // Ensure bins data is available for plotting
-                    plotRoute(
+                if (currentBinsData && currentRouteData && currentRouteData.best_route) { // Ensure all data is available
+                    plotCompleteRoute(
                         currentBinsData,
                         [0, 0], // Depot location
                         [30, 30], // Incinerator location
                         currentRouteData.best_route // The route data itself
                     );
                     updateInfo(currentRouteData);
+                    animateRouteBtn.disabled = false; // Enable animate button after plotting static route
                 } else {
-                    console.error("Bins data not available for plotting.");
-                    statusSpan.textContent = "Error: Bins data not available.";
+                    console.error("Data not available for plotting or route is empty.", currentBinsData, currentRouteData);
+                    statusSpan.textContent = "Error: Data not available for plotting this generation.";
+                    updateInfo(null); // Clear info if no valid data
                 }
 
                 // Update button states
@@ -313,6 +437,7 @@
             } catch (error) {
                 console.error('Error fetching route data:', error);
                 statusSpan.textContent = `Error displaying generation ${gen}: ${error.message}`;
+                updateInfo(null); // Clear info on error
             }
         }
 
