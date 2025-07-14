@@ -217,7 +217,7 @@
             });
             
             Plotly.addTraces(graphDiv, updateData);
-            Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Complete)` });
+            Plotly.relayout(graphDiv, { title: `Route for Generation ${availableGenerations[currentGenerationIndex]} (Complete)` });
         }
 
 
@@ -242,7 +242,7 @@
             animationInterval = setInterval(() => {
                 if (currentTruckIndex >= routeData.length) {
                     stopAnimation();
-                    Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Animation Complete)` });
+                    Plotly.relayout(graphDiv, { title: `Route for Generation ${availableGenerations[currentGenerationIndex]} (Animation Complete)` });
                     return;
                 }
 
