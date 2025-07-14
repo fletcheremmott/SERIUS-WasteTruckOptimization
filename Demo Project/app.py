@@ -36,7 +36,7 @@ depot_id = 'depot'
 COST_PER_KM = 3.2382  # Per km (based on average km/L of Trash Trucks and price per L of diesel)
 GATE_FEE = 80  # Per trip to incinerator
 COST_PER_ADDITIONAL_TRUCK = 200 # Assumed Salary
-MST_ERROR = 50
+MST_ERROR = (num_bins + 2) + (num_bins) #nodes + edges
 
 # -- GA Parameters --
 sol_per_pop = 500
