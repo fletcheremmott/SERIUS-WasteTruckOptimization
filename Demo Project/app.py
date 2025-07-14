@@ -56,6 +56,7 @@ fitness_weights_simplified = {
 # We will store the full route and its associated metrics
 generation_results = {}
 theoretical_min_cost_benchmark = 0
+fitness_history = [] # NEW: To store best fitness per generation for live plotting
 
 # Utility Functions (keep these as they are, no changes needed for Flask integration itself)
 def calculate_distance(loc1, loc2):
@@ -348,8 +349,12 @@ def crossover_vrp(parents, offspring_size_tuple, bins_data_keys, depot_id, incin
             for j in range(1, len(route)):
                 if (route[j] == depot_id and cleaned_route[-1] == depot_id) or \
                    (route[j] == incinerator_id and cleaned_route[-1] == incinerator_id):
-                    continue
-                cleaned_route.append(route[j])
+                        # Avoid consecutive depot or incinerator entries unless it's the start/end depot
+                    if not (j > 0 and route[j] == depot_id and cleaned_route[-1] == depot_id) and \
+                       not (j > 0 and route[j] == incinerator_id and cleaned_route[-1] == incinerator_id):
+                        cleaned_route.append(route[j])
+                else:
+                    cleaned_route.append(route[j])
             child.append(cleaned_route)
 
         offspring.append(child)
@@ -387,7 +392,9 @@ def mutation_vrp(offspring_crossover, mutation_rate, bins_data_keys, depot_id, i
             if candidate_bins_to_move:
                 source_route_idx, source_stop_idx, bin_to_move = random.choice(candidate_bins_to_move)
 
-                mutated_chromosome[source_route_idx].pop(source_stop_idx)
+                # Ensure source_stop_idx is valid before popping
+                if 0 <= source_stop_idx < len(mutated_chromosome[source_route_idx]):
+                    mutated_chromosome[source_route_idx].pop(source_stop_idx)
 
                 target_truck_idx = random.randrange(len(mutated_chromosome))
                 target_route = mutated_chromosome[target_truck_idx]
@@ -395,6 +402,7 @@ def mutation_vrp(offspring_crossover, mutation_rate, bins_data_keys, depot_id, i
                 insert_pos = random.randrange(1, max(2, len(target_route) - 1))
                 target_route.insert(insert_pos, bin_to_move)
 
+                # Re-clean the target route after insertion
                 if not target_route or target_route[0] != depot_id:
                     target_route.insert(0, depot_id)
                 if target_route[-1] != depot_id:
@@ -404,9 +412,13 @@ def mutation_vrp(offspring_crossover, mutation_rate, bins_data_keys, depot_id, i
                 for j in range(1, len(target_route)):
                     if (target_route[j] == depot_id and cleaned_target_route[-1] == depot_id) or \
                        (target_route[j] == incinerator_id and cleaned_target_route[-1] == incinerator_id):
-                        continue
-                    cleaned_target_route.append(target_route[j])
+                        if not (j > 0 and target_route[j] == depot_id and cleaned_target_route[-1] == depot_id) and \
+                           not (j > 0 and target_route[j] == incinerator_id and cleaned_target_route[-1] == incinerator_id):
+                            cleaned_target_route.append(target_route[j])
+                    else:
+                        cleaned_target_route.append(target_route[j])
                 mutated_chromosome[target_truck_idx] = cleaned_target_route
+
 
         # Mutation 3: Add/Remove an incinerator trip (simple heuristic)
         if random.random() < mutation_rate:
@@ -416,7 +428,9 @@ def mutation_vrp(offspring_crossover, mutation_rate, bins_data_keys, depot_id, i
 
             if random.random() < 0.5 and len(route) > 2:
                 insert_pos = random.randrange(1, len(route) - 1)
-                if route[insert_pos] != incinerator_id and route[insert_pos-1] != incinerator_id:
+                # Ensure we don't insert INC next to another INC or at depot boundaries
+                if route[insert_pos] != incinerator_id and route[insert_pos-1] != incinerator_id and \
+                   route[insert_pos] != depot_id and route[insert_pos-1] != depot_id:
                     route.insert(insert_pos, incinerator_id)
             else:
                 inc_indices = [i for i, stop in enumerate(route) if stop == incinerator_id and i != 0 and i != len(route)-1]
@@ -429,7 +443,7 @@ def mutation_vrp(offspring_crossover, mutation_rate, bins_data_keys, depot_id, i
 # Flask Routes
 @app.route('/generate_bins', methods=['GET'])
 def generate_bins():
-    global bins_data_global, totalTrash_global
+    global bins_data_global, totalTrash_global, fitness_history # Include fitness_history here to reset it
     bins_data_global = {}
     for i in range(num_bins):
         bin_id = f'{i+1}'
@@ -439,6 +453,7 @@ def generate_bins():
         bins_data_global[bin_id] = {'loc': (loc_x, loc_y), 'volume': volume, 'service_time': bin_service_time}
 
     totalTrash_global = sum(bin_info['volume'] for bin_info in bins_data_global.values())
+    fitness_history = [] # Reset fitness history when new bins are generated
 
     # Prepare bin data for JSON response, converting tuples to lists
     bins_for_json = {
@@ -456,12 +471,13 @@ def generate_bins():
 
 @app.route('/run_ga', methods=['POST'])
 def run_ga():
-    global generation_results, theoretical_min_cost_benchmark, bins_data_global, totalTrash_global
+    global generation_results, theoretical_min_cost_benchmark, bins_data_global, totalTrash_global, fitness_history
 
     if not bins_data_global:
         return jsonify({"error": "Bins data not generated. Please call /generate_bins first."}), 400
 
     generation_results = {} # Reset results for a new GA run
+    fitness_history = [] # Reset fitness history at the start of a new GA run
     all_bins_in_problem = set(bins_data_global.keys())
     bin_ids_list = list(bins_data_global.keys())
 
@@ -499,6 +515,8 @@ def run_ga():
             overall_best_fitness = current_best_fitness_in_gen
             best_idx_in_pop = numpy.argmin(fitness_scores)
             best_route_overall = new_population[best_idx_in_pop]
+        
+        fitness_history.append(float(overall_best_fitness)) # Store the overall best fitness for this generation
 
         # Save data for specific generations
         if (generation + 1) in generations_to_save:
@@ -648,6 +666,12 @@ def get_route_data(generation):
     if str(generation) not in generation_results:
         return jsonify({"error": f"Data for generation {generation} not found."}), 404
     return jsonify(generation_results[str(generation)])
+
+# NEW ENDPOINT: To get the live fitness history
+@app.route('/get_fitness_history', methods=['GET'])
+def get_fitness_history():
+    global fitness_history
+    return jsonify({'fitness_values': fitness_history})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
