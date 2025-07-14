@@ -102,6 +102,13 @@
 
         const routeColors = ['red', 'green', 'cyan', 'orange', 'darkblue', 'brown', 'pink', 'lime'];
 
+        // --- NEW: Map Image Configuration ---
+        // IMPORTANT: Replace 'path/to/your/map_image.png' with the actual path to your image.
+        // Make sure the image file exists and is accessible.
+        const MAP_IMAGE_URL = 'city-map-town-streets-downtown-600nw-2174648371.png'; // Assuming image is in the same folder
+        // GRID_RANGE is now dynamic to accommodate all points
+        // We'll calculate min/max dynamically in plotInitialStaticPoints
+
         // --- Fitness Graph Functions ---
         function initFitnessGraph() {
             Plotly.newPlot(fitnessGraphDiv, [{
@@ -130,7 +137,6 @@
                         x: [generations],
                         y: [fitnessValues]
                     });
-                    // Optional: Update y-axis range dynamically if fitness changes drastically
                     Plotly.relayout(fitnessGraphDiv, {
                         'yaxis.autorange': true
                     });
@@ -142,8 +148,8 @@
         }
 
         function startFitnessPolling() {
-            stopFitnessPolling(); // Ensure only one polling interval is active
-            initFitnessGraph(); // Initialize or clear the fitness graph
+            stopFitnessPolling();
+            initFitnessGraph();
             fitnessPollingInterval = setInterval(fetchAndUpdateFitnessGraph, 1000); // Poll every 1 second
         }
 
@@ -156,6 +162,30 @@
 
         // --- Route Visualization Functions ---
         function plotInitialStaticPoints(binsData, depotLoc, incineratorLoc) {
+            // Collect all x and y coordinates to determine the overall min/max for the plot range
+            let all_x_coords = [depotLoc[0], incineratorLoc[0]];
+            let all_y_coords = [depotLoc[1], incineratorLoc[1]];
+
+            for (const binId in binsData) {
+                all_x_coords.push(binsData[binId].loc[0]);
+                all_y_coords.push(binsData[binId].loc[1]);
+            }
+
+            // Calculate min/max for padding
+            const min_x = Math.min(...all_x_coords);
+            const max_x = Math.max(...all_x_coords);
+            const min_y = Math.min(...all_y_coords);
+            const max_y = Math.max(...all_y_coords);
+
+            // Add some padding to the ranges for better visibility
+            const padding = 2; // km
+            const x_range = [min_x - padding, max_x + padding];
+            const y_range = [min_y - padding, max_y + padding];
+
+            // Determine image size based on the new ranges
+            const image_sizex = max_x - min_x; // The actual data width covered by the bins and incinerator
+            const image_sizey = max_y - min_y; // The actual data height covered by the bins and incinerator
+
             const data = [];
 
             data.push({ x: [depotLoc[0]], y: [depotLoc[1]], mode: 'markers', type: 'scatter', name: 'Depot', marker: { symbol: 'square', size: 12, color: 'black' }, hoverinfo: 'text', text: `Depot: (${depotLoc[0].toFixed(2)}, ${depotLoc[1].toFixed(2)})` });
@@ -166,25 +196,40 @@
             data.push({ x: bin_x, y: bin_y, mode: 'markers', type: 'scatter', name: 'Bins', marker: { symbol: 'circle', size: 8, color: 'blue' }, hoverinfo: 'text', text: bin_text });
 
             const layout = {
-                title: 'Waste Truck Routing Visualization', // Generic title for main plot
-                xaxis: { title: 'X-coordinate (km)' },
-                yaxis: { title: 'Y-coordinate (km)', scaleanchor: "x", scaleratio: 1 },
+                title: 'Waste Truck Routing Visualization',
+                xaxis: { title: 'X-coordinate (km)', range: x_range, zeroline: false, showgrid: false },
+                yaxis: { title: 'Y-coordinate (km)', range: y_range, scaleanchor: "x", scaleratio: 1, zeroline: false, showgrid: false },
                 hovermode: 'closest',
                 showlegend: true,
-                legend: { x: 1.05, y: 1, xanchor: 'left', yanchor: 'top' }
+                legend: { x: 1.05, y: 1, xanchor: 'left', yanchor: 'top' },
+                images: [
+                    {
+                        source: MAP_IMAGE_URL,
+                        xref: "x",
+                        yref: "y",
+                        x: min_x, // Image left edge at min_x of all data points
+                        y: max_y, // Image top edge at max_y of all data points
+                        sizex: image_sizex, // Image width spans the range of data points
+                        sizey: image_sizey, // Image height spans the range of data points
+                        sizing: "stretch",
+                        layer: "below"
+                    }
+                ]
             };
             Plotly.newPlot(graphDiv, data, layout);
         }
 
         function plotCompleteRoute(binsData, depotLoc, incineratorLoc, routeData) {
             stopAnimation();
-            plotInitialStaticPoints(binsData, depotLoc, incineratorLoc);
+            plotInitialStaticPoints(binsData, depotLoc, incineratorLoc); // Re-plot static points
 
             if (!Array.isArray(routeData)) { console.warn("plotCompleteRoute: routeData is not an array:", routeData); return; }
 
             const updateData = [];
+            
             routeData.forEach((truckRoute, truckIndex) => {
                 if (!Array.isArray(truckRoute)) { console.warn(`plotCompleteRoute: Truck route at index ${truckIndex} is not an array:`, truckRoute); return; }
+
                 if (truckRoute.length < 2 || (truckRoute.length === 2 && truckRoute[0].id === 'depot' && truckRoute[1].id === 'depot')) {
                     console.log(`plotCompleteRoute: Skipping empty or depot-only route for Truck ${truckIndex + 1}`);
                     return;
@@ -284,7 +329,7 @@
             statusSpan.textContent = 'Generating new bins...';
             runGaBtn.disabled = true; prevGenBtn.disabled = true; nextGenBtn.disabled = true;
             displayRouteBtn.disabled = true; animateRouteBtn.disabled = true; stopAnimationBtn.disabled = true;
-            stopAnimation(); stopFitnessPolling(); // Stop polling when generating new bins
+            stopAnimation(); stopFitnessPolling();
 
             try {
                 const response = await fetch(`${API_BASE_URL}/generate_bins`);
@@ -295,8 +340,10 @@
                 theoreticalMinCost = null; availableGenerations = []; currentGenerationIndex = -1;
 
                 Plotly.newPlot(graphDiv, [], {}); updateInfo(null);
+                // Pass depotLoc and incineratorLoc explicitly here as currentBinsData
+                // doesn't contain them, but plotInitialStaticPoints needs them for range calculation.
                 plotInitialStaticPoints(currentBinsData, depotLoc, incineratorLoc);
-                initFitnessGraph(); // Initialize empty fitness graph
+                initFitnessGraph();
 
                 statusSpan.textContent = 'Bins generated. Ready to run GA.';
                 runGaBtn.disabled = false;
@@ -312,7 +359,7 @@
             runGaBtn.disabled = true; generateBinsBtn.disabled = true; prevGenBtn.disabled = true; nextGenBtn.disabled = true;
             displayRouteBtn.disabled = true; animateRouteBtn.disabled = true; stopAnimationBtn.disabled = true;
             stopAnimation();
-            startFitnessPolling(); // Start polling for fitness updates
+            startFitnessPolling();
 
             try {
                 const response = await fetch(`${API_BASE_URL}/run_ga`, { method: 'POST' });
@@ -329,7 +376,7 @@
                 generateBinsBtn.disabled = false;
                 nextGenBtn.disabled = availableGenerations.length === 0;
                 prevGenBtn.disabled = true;
-                stopFitnessPolling(); // Stop polling after GA completes
+                stopFitnessPolling();
 
                 if (availableGenerations.length > 0) {
                     currentGenerationIndex = 0;
@@ -341,7 +388,7 @@
                 statusSpan.textContent = `Error: ${error.message}`;
                 runGaBtn.disabled = false;
                 generateBinsBtn.disabled = false;
-                stopFitnessPolling(); // Stop polling if error occurs during GA run
+                stopFitnessPolling();
             }
         });
 
@@ -400,10 +447,12 @@
                 currentRouteData = await response.json();
 
                 if (currentBinsData) {
+                    // Pass depotLoc and incineratorLoc explicitly here as currentBinsData
+                    // doesn't contain them, but plotInitialStaticPoints needs them for range calculation.
                     plotInitialStaticPoints(
                         currentBinsData,
-                        [0, 0],
-                        [30, 30]
+                        [0, 0], // Depot location
+                        [30, 30] // Incinerator location
                     );
                     updateInfo(currentRouteData);
 
