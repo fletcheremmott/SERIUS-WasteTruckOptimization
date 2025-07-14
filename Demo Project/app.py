@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app) # Enable CORS for all routes
 
 # -- Bins and Grid Requirements --
-num_bins = 48
+num_bins = 50
 grid_range = 15 # 15x15 km grid
 bin_volume_min = 360 # kg
 bin_volume_max = 660 # kg

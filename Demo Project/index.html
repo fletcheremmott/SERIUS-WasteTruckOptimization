@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VRP Genetic Algorithm Simulation</title>
+    <title>Genetic Algorithm Scheduler for Optimization of Waste Truck Routing</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
@@ -31,7 +31,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>VRP Genetic Algorithm Simulation</h1>
+        <h1>Genetic Algorithm Scheduler for Optimization of Waste Truck Routing</h1>
 
         <div id="controls">
             <button id="generateBinsBtn">Generate New Bin Locations</button>
@@ -57,7 +57,7 @@
     </div>
 
     <script>
-        const API_BASE_URL = 'http://127.0.0.1:5000'; // Your Flask backend URL
+        const API_BASE_URL = 'http://127.0.0.1:5000'; // Flask backend URL
 
         let currentBinsData = null;
         let theoreticalMinCost = null;
@@ -139,7 +139,7 @@
             });
 
             const layout = {
-                title: 'VRP Simulation',
+                title: 'Route Simulation Visualization',
                 xaxis: { title: 'X-coordinate (km)' },
                 yaxis: { title: 'Y-coordinate (km)', scaleanchor: "x", scaleratio: 1 },
                 hovermode: 'closest',
@@ -301,7 +301,7 @@
                 }
                 // Update title during animation to show current truck
                 Plotly.relayout(graphDiv, { title: `VRP Solution for Generation ${availableGenerations[currentGenerationIndex]} (Animating Truck ${currentTruckIndex + 1})` });
-            }, 100); // 100 ms = 0.1 seconds
+            }, 150); // 150 ms = 0.15 seconds
         }
 
         function stopAnimation() {
