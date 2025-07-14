@@ -36,6 +36,7 @@ depot_id = 'depot'
 COST_PER_KM = 3.2382  # Per km (based on average km/L of Trash Trucks and price per L of diesel)
 GATE_FEE = 80  # Per trip to incinerator
 COST_PER_ADDITIONAL_TRUCK = 200 # Assumed Salary
+MST_ERROR = 50
 
 # -- GA Parameters --
 sol_per_pop = 500
@@ -473,7 +474,7 @@ def run_ga():
     min_driving_cost_benchmark = (mst_bins_depot_distance * COST_PER_KM) + theoretical_incinerator_travel_cost
     min_gate_fees_cost_benchmark = min_incinerator_trips_theoretical * GATE_FEE
     min_truck_cost_benchmark = COST_PER_ADDITIONAL_TRUCK if totalTrash_global > 0 else 0
-    theoretical_min_cost_benchmark = min_driving_cost_benchmark + min_gate_fees_cost_benchmark + min_truck_cost_benchmark
+    theoretical_min_cost_benchmark = min_driving_cost_benchmark + min_gate_fees_cost_benchmark + min_truck_cost_benchmark + MST_ERROR
 
     current_num_trucks = num_trucks_for_ga_start
     new_population = create_initial_vrp_population(sol_per_pop, bin_ids_list, current_num_trucks, depot_id, incinerator_id, truck_capacity, bins_data_global)
