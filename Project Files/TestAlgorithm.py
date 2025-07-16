@@ -39,6 +39,7 @@ depot_id = 'depot'
 COST_PER_KM = 3.2382  # Per km (based on average km/L of Trash Trucks and price per L of diesel)
 GATE_FEE = 80  # Per trip to incinerator
 COST_PER_ADDITIONAL_TRUCK = 200 # Assumed Salary
+MST_ERROR = (num_bins + 2)
 
 # -- Utility Functions --
 def calculate_distance(loc1, loc2):
@@ -587,7 +588,7 @@ min_gate_fees_cost_benchmark = min_incinerator_trips_theoretical * GATE_FEE
 # For the benchmark, if there's any trash, at least one truck is "used", incurring its base cost (COST_PER_ADDITIONAL_TRUCK)
 min_truck_cost_benchmark = COST_PER_ADDITIONAL_TRUCK if totalTrash > 0 else 0 
 
-minimum_theoretical_cost_benchmark = min_driving_cost_benchmark + min_gate_fees_cost_benchmark + min_truck_cost_benchmark
+minimum_theoretical_cost_benchmark = min_driving_cost_benchmark + min_gate_fees_cost_benchmark + min_truck_cost_benchmark + MST_ERROR
 
 print(f"\n--- Theoretical Minimum Cost (Benchmark) ---")
 print(f"MST (Bins & Depot) Distance: {mst_bins_depot_distance:.2f} km")
